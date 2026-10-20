@@ -104,10 +104,12 @@ def basemap_date_cell_id(feature):
     return {"type": "basemap-date", "keyval": feature["properties"].get("keyval") or ""}
 
 
-def attributes_panel(feature):
+def attributes_panel(feature, show_basemap_date=False):
     """The attribute table for a selected feature.
 
-    The basemap date cell starts as "Looking up…"; its own callback fills it.
+    With `show_basemap_date`, a basemap date cell is added showing
+    "Looking up…"; adding it triggers its own callback, which fills it.
+    Without it, no lookup is made.
     """
     if not feature:
         return html.P(
@@ -118,19 +120,20 @@ def attributes_panel(feature):
         html.Tr([html.Th(label, className="pe-2"), html.Td(props.get(key) or "–")])
         for key, label in ATTRIBUTE_LABELS.items()
     ]
-    after_dates = list(ATTRIBUTE_LABELS).index("date_decis") + 1
-    rows.insert(
-        after_dates,
-        html.Tr(
-            [
-                html.Th(BASEMAP_DATE_LABEL, className="pe-2"),
-                html.Td(
-                    html.Span("Looking up…", className="text-muted"),
-                    id=basemap_date_cell_id(feature),
-                ),
-            ]
-        ),
-    )
+    if show_basemap_date:
+        after_dates = list(ATTRIBUTE_LABELS).index("date_decis") + 1
+        rows.insert(
+            after_dates,
+            html.Tr(
+                [
+                    html.Th(BASEMAP_DATE_LABEL, className="pe-2"),
+                    html.Td(
+                        html.Span("Looking up…", className="text-muted"),
+                        id=basemap_date_cell_id(feature),
+                    ),
+                ]
+            ),
+        )
     children = []
     if props.get("is_placeholder"):
         children.append(
@@ -210,6 +213,13 @@ def _sidebar():
         ),
         html.Hr(),
         html.H5("Selected application"),
+        dbc.Switch(
+            id="show-basemap-date",
+            label="Show basemap image date (slower)",
+            value=False,
+            persistence=True,
+            className="small",
+        ),
         html.Div(id="attributes", children=attributes_panel(None)),
     ]
 
@@ -386,16 +396,19 @@ def create_app(client=None):
             )
         return features[0], no_update, note
 
+    @app.callback(Output("selected-layer", "data"), Input("selected", "data"))
+    def highlight_selected(feature):
+        return {"type": "FeatureCollection", "features": [feature] if feature else []}
+
     @app.callback(
-        Output("selected-layer", "data"),
         Output("attributes", "children"),
         Input("selected", "data"),
+        Input("show-basemap-date", "value"),
     )
-    def show_selected(feature):
-        data = {"type": "FeatureCollection", "features": [feature] if feature else []}
-        return data, attributes_panel(feature)
+    def show_attributes(feature, show_basemap_date):
+        return attributes_panel(feature, show_basemap_date)
 
-    # Fired when show_selected adds a new date cell, so the slow external
+    # Fired when show_attributes adds a new date cell, so the slow external
     # lookup never holds up the highlight or attributes. The cell id carries
     # the keyval: a late reply for an earlier selection targets a cell that's
     # gone and is dropped.

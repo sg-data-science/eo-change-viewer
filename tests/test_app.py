@@ -83,7 +83,7 @@ def fake_basemap(monkeypatch):
 
 
 def test_basemap_date_row_follows_application_dates(features):
-    panel = str(app_module.attributes_panel(features[0]))
+    panel = str(app_module.attributes_panel(features[0], True))
     assert app_module.BASEMAP_DATE_LABEL in panel
     assert panel.index("Decided") < panel.index(app_module.BASEMAP_DATE_LABEL)
     assert panel.index(app_module.BASEMAP_DATE_LABEL) < panel.index("'Key'")
@@ -109,7 +109,7 @@ def test_basemap_date_text_error_is_retried(features, fake_basemap):
 
 
 def test_panel_shows_looking_up_until_date_arrives(features):
-    panel = str(app_module.attributes_panel(features[0]))
+    panel = str(app_module.attributes_panel(features[0], True))
     assert app_module.BASEMAP_DATE_LABEL in panel
     assert "Looking up" in panel
 
@@ -122,4 +122,11 @@ def test_basemap_date_cell_id_is_per_application(features):
         "keyval": first["properties"]["keyval"],
     }
     assert first_id != app_module.basemap_date_cell_id(second)
-    assert str(first_id["keyval"]) in str(app_module.attributes_panel(first))
+    assert str(first_id["keyval"]) in str(app_module.attributes_panel(first, True))
+
+
+def test_basemap_date_row_off_by_default(features):
+    # No date cell means no lookup is triggered.
+    panel = str(app_module.attributes_panel(features[0]))
+    assert app_module.BASEMAP_DATE_LABEL not in panel
+    assert "basemap-date" not in panel

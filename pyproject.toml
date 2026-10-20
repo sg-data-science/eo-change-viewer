@@ -1,0 +1,20 @@
+[tool.black]
+line-length = 88
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+# pycodestyle, pyflakes, isort, bugbear, pyupgrade, simplify
+select = ["E", "W", "F", "I", "B", "UP", "SIM"]
+# Line length is black's job.
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+# Integration tests need the network and .env; run them with `pytest -m integration`.
+addopts = "-m 'not integration'"
+markers = [
+    "integration: talks to GeoServer or CEDA over the network",
+]

@@ -56,9 +56,10 @@ S2_FIRST_YEAR = 2015
 # Month used for the default before/after windows, so images match in season.
 DEFAULT_WINDOW_MONTH = 6
 
-# Image chips: the area shown is the site's bounds plus this buffer, made
-# square. Each band is clipped to this range and scaled to 0-255.
-CHIP_BUFFER_M = 200
+# Image chips: the area read is the site's bounds plus this buffer, made
+# square, which leaves room to pan around in the panel maps. Each band is
+# clipped to RGB_CLIP and scaled to 0-255.
+CHIP_BUFFER_M = 1000
 RGB_CLIP = (0, 150)
 # Panel chips are enlarged to about this many pixels across, so the burnt-in
 # polygon outline stays thin relative to the 10 m pixels.

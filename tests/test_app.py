@@ -1,8 +1,11 @@
 """Dash app: helper functions, and that the app builds without the network."""
 
 import json
+import re
 from datetime import date
+from pathlib import Path
 
+import dash_leaflet as dl
 import pytest
 from shapely.geometry import shape
 
@@ -213,3 +216,38 @@ def test_chip_route_traversal_serves_nothing(dash_app, url):
     resp = dash.server.test_client().get(url)
     assert resp.mimetype != "image/png"
     assert b"PLANNING_POLY_WFS" not in resp.data
+
+
+# --- linked panel maps --------------------------------------------------------
+
+SYNC_JS = Path(app_module.__file__).parent / "assets" / "sync_maps.js"
+
+
+def _js_constant(name):
+    match = re.search(rf'const {name} = "([^"]+)";', SYNC_JS.read_text())
+    assert match, f"{name} not found in sync_maps.js"
+    return match.group(1)
+
+
+def _layout_ids(layout):
+    return [getattr(c, "id", None) for c in layout._traverse()]
+
+
+def test_sync_script_ids_match_layout(dash_app):
+    # sync_maps.js finds maps and the switch by these ids; renaming one in
+    # Python would silently stop the linking.
+    dash, _ = dash_app
+    ids = _layout_ids(dash.layout)
+    assert _js_constant("MAIN_MAP_ID") in ids
+    assert _js_constant("LINK_SWITCH_ID") in ids
+    panels = [i for i in ids if isinstance(i, dict) and i["type"] == "window-panel"]
+    assert len(panels) == 3
+    # Dash gives a map with a dict id a JSON container id, which the script
+    # searches for this text.
+    assert all(_js_constant("PANEL_ID_PART") in json.dumps(i) for i in panels)
+
+
+def test_panel_maps_have_no_basemap():
+    # An empty panel should read as "no image", not as a picture of the site.
+    panel = app_module._panel_map(0)
+    assert not any(isinstance(c, dl.TileLayer) for c in panel._traverse())

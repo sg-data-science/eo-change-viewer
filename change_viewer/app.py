@@ -69,6 +69,7 @@ BLANK_PNG = (
     "mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
 )
 BLANK_BOUNDS = [[0, 0], [0.0001, 0.0001]]
+EMPTY_COLLECTION = {"type": "FeatureCollection", "features": []}
 
 
 def to_features(gdf):
@@ -266,6 +267,32 @@ def _muted(message):
     return html.P(message, className="text-muted small mb-0")
 
 
+def _panel_map(index):
+    """A small map for one window's image.
+
+    `assets/sync_maps.js` keeps the panel maps on the same view, and the main
+    map too when "Link to main map" is on. It finds them by the
+    `window-panel` in their id.
+
+    There's no basemap: only the Sentinel-2 image and the site outline show,
+    so an empty panel plainly means no image yet.
+    """
+    return dl.Map(
+        id=window_id("panel", index),
+        center=config.MAP_CENTER,
+        zoom=config.MAP_ZOOM,
+        maxZoom=20,
+        attributionControl=False,
+        style={"height": "18rem", "background": "#e9ecef"},
+        children=[
+            dl.ImageOverlay(
+                id=window_id("image", index), url=BLANK_PNG, bounds=BLANK_BOUNDS
+            ),
+            dl.GeoJSON(id=window_id("outline", index), style=SELECTED_STYLE),
+        ],
+    )
+
+
 def _window_card(index):
     return dbc.Card(
         [
@@ -283,24 +310,24 @@ def _window_card(index):
             ),
             dbc.CardBody(
                 [
+                    _panel_map(index),
                     dcc.Loading(
                         html.Div(
                             [
                                 html.Div(id=window_id("status", index)),
-                                html.Img(
-                                    id=window_id("chip", index),
-                                    style={"width": "100%", "display": "none"},
+                                html.Div(
+                                    id=window_id("caption", index),
+                                    className="small mt-1",
                                 ),
                             ],
-                            style={"minHeight": "4rem"},
+                            style={"minHeight": "1.5rem"},
                         ),
                         custom_spinner=html.Div(
                             [dbc.Spinner(size="sm"), " Searching CEDA…"],
-                            className="small text-muted",
+                            className="small text-muted mt-1",
                         ),
                         overlay_style={"visibility": "visible", "opacity": 0.4},
                     ),
-                    html.Div(id=window_id("caption", index), className="small mt-1"),
                     # A native select, as its options always draw on top; a
                     # Dash dropdown's menu was cut off at the bottom of the page.
                     dbc.Select(
@@ -345,6 +372,16 @@ def _image_panel():
                 ),
                 dbc.Col(
                     dbc.Button("Find images", id="find-button", n_clicks=0, size="sm"),
+                    width="auto",
+                ),
+                dbc.Col(
+                    dbc.Switch(
+                        id="link-main-map",
+                        label="Link to main map",
+                        value=False,
+                        persistence=True,
+                        className="small mb-0",
+                    ),
                     width="auto",
                 ),
                 dbc.Col(html.Div(id="find-status", className="small"), width=True),
@@ -651,6 +688,20 @@ def create_app(client=None, image_search=None, chip_cache=None):
         return default_window_values(feature)
 
     @app.callback(
+        Output(window_id("outline", ALL), "data"),
+        Output(window_id("panel", ALL), "viewport"),
+        Input("selected", "data"),
+        prevent_initial_call=True,
+    )
+    def show_site_in_panels(feature):
+        n = config.N_WINDOWS
+        if not feature:
+            return [EMPTY_COLLECTION] * n, [no_update] * n
+        outline = {"type": "FeatureCollection", "features": [feature]}
+        viewport = {"bounds": view_bounds(feature), "transition": "fitBounds"}
+        return [outline] * n, [viewport] * n
+
+    @app.callback(
         Output(window_id("request", ALL), "data"),
         Output("find-status", "children"),
         Input("find-button", "n_clicks"),
@@ -703,8 +754,8 @@ def create_app(client=None, image_search=None, chip_cache=None):
         return data, status, choice_options(result), result.best.image_link
 
     @app.callback(
-        Output(window_id("chip", MATCH), "src"),
-        Output(window_id("chip", MATCH), "style"),
+        Output(window_id("image", MATCH), "url"),
+        Output(window_id("image", MATCH), "bounds"),
         Output(window_id("caption", MATCH), "children"),
         Output(window_id("choice", MATCH), "style"),
         Output(window_id("overlay", MATCH), "url"),
@@ -714,42 +765,31 @@ def create_app(client=None, image_search=None, chip_cache=None):
     )
     def show_window_image(image_link, data):
         hidden = {"display": "none"}
+        blank = (BLANK_PNG, BLANK_BOUNDS)
         if not image_link or not data:
-            return None, hidden, None, hidden, BLANK_PNG, BLANK_BOUNDS
+            return *blank, None, hidden, *blank
         result = imagery.SearchResult.from_dict(data)
         candidate = next(c for c in result.candidates if c.image_link == image_link)
         feature = data["feature"]
         aoi = aoi_from_feature(feature)
         try:
-            panel_url, overlay_url, bounds = cached_chip(
+            _, overlay_url, bounds = cached_chip(
                 chip_cache,
                 feature["properties"]["keyval"],
                 candidate,
                 aoi.geometry.iloc[0],
             )
         except RasterioIOError:
-            return (
-                None,
-                hidden,
-                _error("Couldn't read the image from CEDA, try again."),
-                hidden,
-                BLANK_PNG,
-                BLANK_BOUNDS,
-            )
+            message = _error("Couldn't read the image from CEDA, try again.")
+            return *blank, message, hidden, *blank
         source = "CEDA STAC" if result.source == "stac" else "CEDA archive listing"
         caption = [
             html.Span(candidate_label(candidate, result.best), className="fw-bold"),
             html.Span(f" · {source}", className="text-muted"),
         ]
         choice_style = {} if len(result.candidates) > 1 else hidden
-        return (
-            panel_url,
-            {"width": "100%", "imageRendering": "pixelated"},
-            caption,
-            choice_style,
-            overlay_url,
-            bounds,
-        )
+        # The panel map and the main map's overlay show the same PNG.
+        return overlay_url, bounds, caption, choice_style, overlay_url, bounds
 
     return app
 

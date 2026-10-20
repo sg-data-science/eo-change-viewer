@@ -1,0 +1,18 @@
+numpy
+pandas
+scipy
+requests
+tqdm
+matplotlib
+beautifulsoup4
+lxml
+rasterio
+geopandas
+fiona
+pystac-client
+ceda-sentinel @ git+https://github.com/tomwilsonsco/ceda_sentinel@v0.1.0
+dash
+dash-leaflet
+dash-bootstrap-components
+pillow
+python-dotenv

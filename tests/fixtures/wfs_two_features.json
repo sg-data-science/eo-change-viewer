@@ -1,0 +1,284 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "id": "pub_plnapppol.564141",
+   "geometry": {
+    "type": "MultiPolygon",
+    "coordinates": [
+     [
+      [
+       [
+        330651.324,
+        665245.134
+       ],
+       [
+        330642.229,
+        665251.087
+       ],
+       [
+        330625.362,
+        665225.952
+       ],
+       [
+        330634.622,
+        665219.172
+       ],
+       [
+        330651.324,
+        665245.134
+       ]
+      ]
+     ]
+    ]
+   },
+   "geometry_name": "geom",
+   "properties": {
+    "year": 2022,
+    "keyval": "R6M0KPKVIRF00",
+    "reference": "22/00083/DPP",
+    "alt_ref": "100520486-001",
+    "local_auth": "Midlothian",
+    "url": "https://planning-applications.midlothian.gov.uk/OnlinePlanning/applicationDetails.do?activeTab=summary&keyVal=R6M0KPKVIRF00",
+    "uprn": 120013116,
+    "address": "90 Dobbie's Road, Bonnyrigg, EH19 2AZ, ",
+    "proposal": "Erection of dwellinghouse",
+    "date_recei": "2022-02-01",
+    "date_valid": "2022-02-07",
+    "date_decis": "2022-04-22",
+    "date_issue": "2022-04-22",
+    "date_expir": "2022-04-04",
+    "dev_code": "02B",
+    "dev_desc": "Housing (local)",
+    "dev_desc_is": "housing",
+    "maj_min_loc_is": "local",
+    "with_eia_is": "n",
+    "appl_code": "DPP",
+    "appl_desc": "Detailed Planning Permission",
+    "appl_desc_is": "Planning Permission",
+    "decis_code": "CONPER",
+    "decis_desc": "Grant with conditions",
+    "decis_desc_is": "Approved",
+    "stat_code": "CONPER",
+    "stat_desc": "Consent with Conditions",
+    "date_adver": null,
+    "date_adexp": null,
+    "adv_r_code": null,
+    "adv_r_desc": null,
+    "xcoord": 330629,
+    "ycoord": 665241,
+    "sh_update": "2026-10-19"
+   },
+   "bbox": [
+    330625.362,
+    665219.172,
+    330651.324,
+    665251.087
+   ]
+  },
+  {
+   "type": "Feature",
+   "id": "pub_plnapppol.560206",
+   "geometry": {
+    "type": "MultiPolygon",
+    "coordinates": [
+     [
+      [
+       [
+        329769,
+        695172
+       ],
+       [
+        329768.8079,
+        695170.0491
+       ],
+       [
+        329768.2388,
+        695168.1732
+       ],
+       [
+        329767.3147,
+        695166.4443
+       ],
+       [
+        329766.0711,
+        695164.9289
+       ],
+       [
+        329764.5557,
+        695163.6853
+       ],
+       [
+        329762.8268,
+        695162.7612
+       ],
+       [
+        329760.9509,
+        695162.1921
+       ],
+       [
+        329759,
+        695162
+       ],
+       [
+        329757.0491,
+        695162.1921
+       ],
+       [
+        329755.1732,
+        695162.7612
+       ],
+       [
+        329753.4443,
+        695163.6853
+       ],
+       [
+        329751.9289,
+        695164.9289
+       ],
+       [
+        329750.6853,
+        695166.4443
+       ],
+       [
+        329749.7612,
+        695168.1732
+       ],
+       [
+        329749.1921,
+        695170.0491
+       ],
+       [
+        329749,
+        695172
+       ],
+       [
+        329749.1921,
+        695173.9509
+       ],
+       [
+        329749.7612,
+        695175.8268
+       ],
+       [
+        329750.6853,
+        695177.5557
+       ],
+       [
+        329751.9289,
+        695179.0711
+       ],
+       [
+        329753.4443,
+        695180.3147
+       ],
+       [
+        329755.1732,
+        695181.2388
+       ],
+       [
+        329757.0491,
+        695181.8079
+       ],
+       [
+        329759,
+        695182
+       ],
+       [
+        329760.9509,
+        695181.8079
+       ],
+       [
+        329762.8268,
+        695181.2388
+       ],
+       [
+        329764.5557,
+        695180.3147
+       ],
+       [
+        329766.0711,
+        695179.0711
+       ],
+       [
+        329767.3147,
+        695177.5557
+       ],
+       [
+        329768.2388,
+        695175.8268
+       ],
+       [
+        329768.8079,
+        695173.9509
+       ],
+       [
+        329769,
+        695172
+       ]
+      ]
+     ]
+    ]
+   },
+   "geometry_name": "geom",
+   "properties": {
+    "year": 2022,
+    "keyval": "R4GPX3HF0O100",
+    "reference": "19/01192/NMV2",
+    "alt_ref": "Email submission",
+    "local_auth": "Fife",
+    "url": "https://planning.fife.gov.uk/online/applicationDetails.do?activeTab=summary&keyVal=R4GPX3HF0O100",
+    "uprn": 320268328,
+    "address": "Land At Kingslaw, Randolph Road, Kirkcaldy, Fife, , ",
+    "proposal": "Approval of matters required by conditions 1(a) and 2(a-h) of 10/01774/EIA for a residential development of 76 Affordable housing units (Phases 1C and 1E) at Kingslaw, Kirkcaldy East SDA (Non-Material Variation to 19/01192/ARC for changes to footway adjacent to parking court at rear of Plots 71-75)",
+    "date_recei": "2021-12-21",
+    "date_valid": "2022-01-04",
+    "date_decis": "2022-02-01",
+    "date_issue": "2022-02-01",
+    "date_expir": null,
+    "dev_code": "NMVL",
+    "dev_desc": "Non-material Variation - Local",
+    "dev_desc_is": "non material variation",
+    "maj_min_loc_is": "local",
+    "with_eia_is": "n",
+    "appl_code": "NMV2",
+    "appl_desc": "Non-Material Variation",
+    "appl_desc_is": "Non-Material Variation",
+    "decis_code": "PER",
+    "decis_desc": "Application Permitted - no conditions",
+    "decis_desc_is": "Approved",
+    "stat_code": "PER",
+    "stat_desc": "Application Permitted - no conditions",
+    "date_adver": null,
+    "date_adexp": null,
+    "adv_r_code": null,
+    "adv_r_desc": null,
+    "xcoord": 329759,
+    "ycoord": 695172,
+    "sh_update": "2026-10-19"
+   },
+   "bbox": [
+    329749,
+    695162,
+    329769,
+    695182
+   ]
+  }
+ ],
+ "totalFeatures": 2,
+ "numberMatched": 2,
+ "numberReturned": 2,
+ "crs": {
+  "type": "name",
+  "properties": {
+   "name": "urn:ogc:def:crs:EPSG::27700"
+  }
+ },
+ "bbox": [
+  329749,
+  665219.172,
+  330651.324,
+  695182
+ ]
+}

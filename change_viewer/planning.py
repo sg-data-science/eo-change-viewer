@@ -22,6 +22,7 @@ from shapely.geometry import MultiPolygon, Polygon
 from change_viewer import config
 
 GEOMETRY_FIELD = "geom"
+SITE_LIST_FIELDS = ("keyval", "reference", "local_auth")
 _LOOKUP_TO_NATIVE = Transformer.from_crs(
     config.DISPLAY_CRS, config.NATIVE_CRS, always_xy=True
 )
@@ -185,13 +186,11 @@ class PlanningClient:
             "count": int(count),
         }
 
-    def get_features(self, cql, count=50):
-        """Run a GetFeature query and return a GeoDataFrame in EPSG:27700."""
+    def _get_json(self, params):
+        """Run a WFS request and return the decoded JSON, with safe errors."""
         try:
             response = self.session.get(
-                self.config.endpoint,
-                params=self._params(cql, count),
-                timeout=self.timeout,
+                self.config.endpoint, params=params, timeout=self.timeout
             )
         except requests.Timeout:
             raise PlanningError("Planning server did not respond in time") from None
@@ -206,7 +205,7 @@ class PlanningClient:
             message = f"Planning server returned HTTP {response.status_code}"
             raise PlanningError(f"{message}: {detail}" if detail else message)
         try:
-            data = response.json()
+            return response.json()
         except ValueError:
             detail = self.config.redact(_exception_text(response.text))
             raise PlanningError(
@@ -214,7 +213,23 @@ class PlanningClient:
                 if detail
                 else "Planning server sent an unexpected response"
             ) from None
-        return parse_features(data)
+
+    def get_features(self, cql, count=50):
+        """Run a GetFeature query and return a GeoDataFrame in EPSG:27700."""
+        return parse_features(self._get_json(self._params(cql, count)))
+
+    def site_list(self, year, dev_type=None):
+        """Every site for `year` (and `dev_type`), without geometry.
+
+        Returns dicts of the `SITE_LIST_FIELDS`, sorted by council then
+        reference, which keeps neighbouring sites together.
+        """
+        params = self._params(_and(_year_clause(year), _dev_type_clause(dev_type)), 0)
+        del params["count"]
+        params["propertyName"] = ",".join(SITE_LIST_FIELDS)
+        params["sortBy"] = "local_auth,reference,keyval"
+        features = self._get_json(params).get("features", [])
+        return [{k: f["properties"].get(k) for k in SITE_LIST_FIELDS} for f in features]
 
     def search(self, year, text, limit=20):
         """Polygons for `year` whose reference or address contains `text`."""

@@ -19,7 +19,8 @@ _SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 CHIP_ROUTE = "/chips"
 
 
-def _check(name):
+def safe_name(name):
+    """`name` if it's safe as a single file or folder name; else ValueError."""
     if not _SAFE_NAME.match(name or ""):
         raise ValueError(f"unsafe cache name: {name!r}")
     return name
@@ -30,11 +31,11 @@ class Cache:
         self.root = Path(root)
 
     def site_dir(self, keyval):
-        return self.root / _check(keyval)
+        return self.root / safe_name(keyval)
 
     def path(self, keyval, filename):
         """Path of a cached file, after checking both names are safe."""
-        return self.site_dir(keyval) / _check(filename)
+        return self.site_dir(keyval) / safe_name(filename)
 
     def _write(self, path, data):
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -63,7 +64,7 @@ class Cache:
 
     @staticmethod
     def chip_names(image_id):
-        stem = f"{_check(image_id)}_b{config.CHIP_BUFFER_M}"
+        stem = f"{safe_name(image_id)}_b{config.CHIP_BUFFER_M}"
         return f"{stem}_panel.png", f"{stem}_overlay.png", f"{stem}_overlay.json"
 
     def has_chip(self, keyval, image_id):

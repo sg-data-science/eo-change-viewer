@@ -171,6 +171,37 @@ def test_by_keyval_returns_geodataframe():
     )
 
 
+SITE_LIST_BODY = json.dumps(
+    {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": None,
+                "properties": {"keyval": "K1", "reference": "R1", "local_auth": "A"},
+            }
+        ],
+    }
+)
+
+
+def test_site_list_asks_server_to_sort_and_skip_geometry():
+    client, session = client_with(FakeResponse(SITE_LIST_BODY))
+    sites = client.site_list(2022, "housing")
+    assert sites == [{"keyval": "K1", "reference": "R1", "local_auth": "A"}]
+    params = session.calls[0]["params"]
+    assert params["CQL_FILTER"] == "year=2022 AND dev_desc_is='housing'"
+    assert params["propertyName"] == "keyval,reference,local_auth"
+    assert params["sortBy"].startswith("local_auth,reference")
+    assert "count" not in params
+
+
+def test_site_list_all_types():
+    client, session = client_with(FakeResponse(SITE_LIST_BODY))
+    client.site_list(2022)
+    assert session.calls[0]["params"]["CQL_FILTER"] == "year=2022"
+
+
 # --- errors never contain the key -------------------------------------------
 
 

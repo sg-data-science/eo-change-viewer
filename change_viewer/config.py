@@ -8,6 +8,11 @@ from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CACHE_DIR = PROJECT_ROOT / "cache"
+# Saved reviews and exported chips. Unlike the cache, these are the user's
+# work, so they're kept apart from it.
+OUTPUT_DIR = PROJECT_ROOT / "output"
+REVIEWS_PATH = OUTPUT_DIR / "reviews.gpkg"
+EXPORT_DIR = OUTPUT_DIR / "chips"
 
 # Name of the variable in .env holding the full WFS URL, auth key included.
 WFS_URL_ENV = "PLANNING_POLY_WFS"
@@ -50,7 +55,8 @@ PLACEHOLDER_RADIUS_M = 10.0
 S2CLOUDLESS_MAX = 10
 CHECK_BUFFER_M = 100
 TILE_CLOUD_MAX = 100
-N_WINDOWS = 3
+WINDOW_NAMES = ("before", "after", "later")
+N_WINDOWS = len(WINDOW_NAMES)
 # First year of the CEDA Sentinel-2 ARD archive.
 S2_FIRST_YEAR = 2015
 # Month used for the default before/after windows, so images match in season.

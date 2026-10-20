@@ -221,6 +221,7 @@ __marimo__/
 
 # change-viewer
 cache/
+output/
 
 docs/
 .claude/

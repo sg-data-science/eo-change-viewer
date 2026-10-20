@@ -1,8 +1,10 @@
 """Dash app: planning polygons on a map, and Sentinel-2 chips of one site.
 
-Pick a site by clicking or searching, set up to three month windows and press
-Find. Each window is searched in its own callback, so the three run in
-parallel and each shows its own progress.
+Pick a site by clicking, searching or stepping with Next and Previous, set up
+to three month windows and press Find. Each window is searched in its own
+callback, so the three run in parallel and each shows its own progress. A
+verdict saved for a site is stored with its chosen images, which are
+exported; reopening the site brings both back.
 
 Run with `python -m change_viewer.app` and open http://localhost:8050.
 """
@@ -21,11 +23,12 @@ from flask import abort, send_file
 from rasterio.errors import RasterioIOError
 from shapely.geometry import shape
 
-from change_viewer import basemap, config, imagery
+from change_viewer import basemap, config, imagery, reviews
 from change_viewer.cache import CHIP_ROUTE, Cache, cached_chip, cached_search
 from change_viewer.planning import PlanningClient, PlanningError
 from change_viewer.proxy import ROUTE as WMS_ROUTE
 from change_viewer.proxy import register_wms_proxy
+from change_viewer.reviews import ReviewStore, WindowChoice
 
 ESRI_IMAGERY = (
     "https://server.arcgisonline.com/ArcGIS/rest/services/"
@@ -62,7 +65,7 @@ ATTRIBUTE_LABELS = {
 ALL_TYPES = "__all__"
 BASEMAP_DATE_LABEL = "Basemap image date"
 
-WINDOW_NAMES = ["Before", "After", "Later"]
+WINDOW_NAMES = [name.title() for name in config.WINDOW_NAMES]
 # A transparent pixel, so map overlays exist before there's an image.
 BLANK_PNG = (
     "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42"
@@ -199,26 +202,41 @@ def window_id(kind, index):
     return {"type": f"window-{kind}", "index": index}
 
 
-def default_window_values(feature):
-    """`YYYY-MM` values for the window inputs, or None where left blank."""
+def default_window_values(feature, review=None):
+    """`YYYY-MM` values for the window inputs, or None where left blank.
+
+    A saved review's windows are used when there is one.
+    """
     if not feature:
         return [None] * config.N_WINDOWS
+    if review_has_windows(review):
+        return [month for month, _ in reviews.saved_windows(review)]
     props = feature["properties"]
     windows = imagery.default_windows(props.get("date_recei"), props.get("date_decis"))
     return [w.key if w else None for w in windows]
 
 
-def window_requests(feature, values, max_cloud, n_clicks):
-    """One search request per window, for the window callbacks."""
+def review_has_windows(review):
+    return bool(review) and any(month for month, _ in reviews.saved_windows(review))
+
+
+def window_requests(feature, values, max_cloud, n_clicks, prefer=None):
+    """One search request per window, for the window callbacks.
+
+    `prefer` gives an image link per window to show instead of the clearest,
+    such as the one chosen in a saved review.
+    """
+    prefer = prefer or [None] * len(values)
     return [
         {
             "feature": feature,
             "window": value or None,
             "max_cloud": float(max_cloud or config.S2CLOUDLESS_MAX),
+            "prefer": link,
             # Makes each press a new request, even with the same windows.
             "n": n_clicks,
         }
-        for value in values
+        for value, link in zip(values, prefer, strict=True)
     ]
 
 
@@ -257,6 +275,82 @@ def no_image_message(window, max_cloud):
         f"No image of this site with under {max_cloud:g}% cloud in "
         f"{window.label}. Try another month or raise the max cloud."
     )
+
+
+def step_target(keyvals, current, direction, skip=frozenset()):
+    """Index of the next site after `current` in `direction` (1 or -1).
+
+    Sites in `skip` are passed over. If `current` isn't in the list, Next
+    starts at the first site and Previous at the last. None at either end.
+    """
+    try:
+        i = keyvals.index(current)
+    except ValueError:
+        i = -1 if direction > 0 else len(keyvals)
+    i += direction
+    while 0 <= i < len(keyvals):
+        if keyvals[i] not in skip:
+            return i
+        i += direction
+    return None
+
+
+def position_text(keyvals, current, reviewed):
+    """Where the selected site is in the step list, and how many are reviewed."""
+    done = len(reviewed.intersection(keyvals))
+    count = f"{len(keyvals):,} sites · {done:,} reviewed"
+    if current in keyvals:
+        return f"Site {keyvals.index(current) + 1:,} of {count}"
+    return count
+
+
+def window_choices(results, choice_values, months, keyval):
+    """A `WindowChoice` per window from the panels' current state.
+
+    A window with a result records its searched month and the image shown;
+    one without records the month typed in, and no image.
+    """
+    choices = []
+    for name, data, link, month in zip(
+        config.WINDOW_NAMES, results, choice_values, months, strict=True
+    ):
+        candidate = None
+        if data and data["feature"]["properties"].get("keyval") == keyval:
+            result = imagery.SearchResult.from_dict(data)
+            month = result.window.key
+            candidate = next(
+                (c for c in result.candidates if c.image_link == link), None
+            )
+        choices.append(WindowChoice(name, month or None, candidate))
+    return choices
+
+
+def review_status(record, failed=()):
+    """What's saved for the selected site."""
+    if not record:
+        return _muted("Not reviewed yet.")
+    exported = sum(1 for name in config.WINDOW_NAMES if record.get(f"{name}_chip"))
+    saved_at = record["saved_at"].replace("T", " ")[:16]
+    children = [
+        html.P(
+            [
+                html.Span(
+                    f"Saved: {reviews.VERDICTS[record['verdict']]}",
+                    className="fw-bold",
+                ),
+                f" · {saved_at} · {exported} image{'s' * (exported != 1)} exported",
+            ],
+            className="text-success small mb-1",
+        )
+    ]
+    if failed:
+        children.append(
+            _warning(
+                f"Couldn't read the {' and '.join(failed)} image from CEDA, so it "
+                "wasn't exported. Save again to retry."
+            )
+        )
+    return children
 
 
 def _warning(message):
@@ -434,6 +528,75 @@ def _sidebar():
         ),
         html.Hr(),
         html.H5("Selected application"),
+        html.Div(
+            [
+                dbc.ButtonGroup(
+                    [
+                        dbc.Button(
+                            "◀ Previous",
+                            id="prev-button",
+                            n_clicks=0,
+                            outline=True,
+                            color="secondary",
+                        ),
+                        dbc.Button(
+                            "Next ▶",
+                            id="next-button",
+                            n_clicks=0,
+                            outline=True,
+                            color="secondary",
+                        ),
+                    ],
+                    size="sm",
+                ),
+                dbc.Switch(
+                    id="skip-reviewed",
+                    label="Skip reviewed",
+                    value=True,
+                    persistence=True,
+                    className="small mb-0",
+                ),
+            ],
+            className="d-flex align-items-center gap-3",
+        ),
+        html.Div(
+            id="step-status",
+            className="small text-muted mb-2",
+            title="Next and Previous step through the year and development type "
+            "shown on the map, in council and reference order.",
+        ),
+        dbc.Label("Verdict", html_for="verdict", className="mb-0"),
+        dbc.RadioItems(
+            id="verdict",
+            options=[{"label": v, "value": k} for k, v in reviews.VERDICTS.items()],
+            inline=True,
+            className="small",
+        ),
+        dbc.Textarea(id="note", placeholder="Note (optional)", size="sm", rows=2),
+        html.Div(
+            [
+                dbc.Button("Save", id="save-button", n_clicks=0, size="sm"),
+                dbc.Button(
+                    "Save and next",
+                    id="save-next-button",
+                    n_clicks=0,
+                    size="sm",
+                    outline=True,
+                    color="primary",
+                ),
+            ],
+            className="d-flex gap-2 mt-2",
+            title="Saves the verdict and the images shown, and exports them.",
+        ),
+        dcc.Loading(
+            html.Div(
+                id="review-status", className="mt-2", style={"minHeight": "1.5rem"}
+            ),
+            custom_spinner=html.Div(
+                [dbc.Spinner(size="sm"), " Saving and exporting…"],
+                className="small text-muted mt-2",
+            ),
+        ),
         dbc.Switch(
             id="show-basemap-date",
             label="Show basemap image date (slower)",
@@ -442,6 +605,7 @@ def _sidebar():
             className="small",
         ),
         html.Div(id="attributes", children=attributes_panel(None)),
+        dcc.Store(id="step-request"),
     ]
 
 
@@ -526,15 +690,32 @@ def _info(message):
     return dbc.Alert(message, color="info", className="py-2 small")
 
 
-def create_app(client=None, image_search=None, chip_cache=None):
+def create_app(
+    client=None,
+    image_search=None,
+    chip_cache=None,
+    review_store=None,
+    export_dir=config.EXPORT_DIR,
+):
     """Build the Dash app.
 
-    `client` defaults to one configured from `.env`; `image_search` and
-    `chip_cache` to the real CEDA search and the on-disk cache.
+    `client` defaults to one configured from `.env`; `image_search`,
+    `chip_cache` and `review_store` to the real CEDA search, the on-disk
+    cache and the reviews GeoPackage.
     """
     client = client or PlanningClient.from_env()
     image_search = image_search or imagery.ImageSearch()
     chip_cache = chip_cache or Cache()
+    review_store = review_store or ReviewStore()
+
+    @functools.lru_cache(maxsize=8)
+    def site_list(year, dev_type):
+        # Errors aren't cached, so a failed fetch is retried next time.
+        return tuple(s["keyval"] for s in client.site_list(year, dev_type))
+
+    def selected_review(feature):
+        return review_store.get(feature["properties"]["keyval"]) if feature else None
+
     app = Dash(
         __name__,
         title="change-viewer",
@@ -614,14 +795,34 @@ def create_app(client=None, image_search=None, chip_cache=None):
         Output("status", "children", allow_duplicate=True),
         Input("map", "clickData"),
         Input({"type": "search-hit", "index": ALL}, "n_clicks"),
+        Input("prev-button", "n_clicks"),
+        Input("next-button", "n_clicks"),
+        Input("step-request", "data"),
         State("search-store", "data"),
         State("year", "value"),
         State("dev-type", "value"),
         State("map", "zoom"),
+        State("selected", "data"),
+        State("skip-reviewed", "value"),
         prevent_initial_call=True,
     )
-    def select(click, hit_clicks, search_features, year, dev_type, zoom):
+    def select(
+        click,
+        hit_clicks,
+        _prev,
+        _next,
+        _step,
+        search_features,
+        year,
+        dev_type,
+        zoom,
+        current,
+        skip_reviewed,
+    ):
         trigger = ctx.triggered_id
+        if trigger in ("prev-button", "next-button", "step-request"):
+            direction = -1 if trigger == "prev-button" else 1
+            return step_to(current, direction, year, dev_type, skip_reviewed)
         if isinstance(trigger, dict):
             index = trigger["index"]
             if not hit_clicks[index] or not search_features:
@@ -651,6 +852,41 @@ def create_app(client=None, image_search=None, chip_cache=None):
                 "Search by reference to pick another."
             )
         return features[0], no_update, note
+
+    def step_to(current, direction, year, dev_type, skip_reviewed):
+        """Select the next or previous site in the year and type shown."""
+        current_keyval = current["properties"].get("keyval") if current else None
+        try:
+            keyvals = site_list(int(year), dev_type_value(dev_type))
+            skip = review_store.reviewed() if skip_reviewed else set()
+            index = step_target(list(keyvals), current_keyval, direction, skip)
+            if index is None:
+                unreviewed = " unreviewed" if skip_reviewed else ""
+                way = "after" if direction > 0 else "before"
+                return no_update, no_update, _info(f"No{unreviewed} sites {way} this.")
+            gdf = client.by_keyval(year, keyvals[index])
+        except PlanningError as e:
+            return no_update, no_update, _error(str(e))
+        if gdf is None:
+            return no_update, no_update, _error("That site is no longer available.")
+        feature = to_features(gdf)[0]
+        viewport = {"bounds": view_bounds(feature), "transition": "flyToBounds"}
+        return feature, viewport, None
+
+    @app.callback(
+        Output("step-status", "children"),
+        Input("selected", "data"),
+        Input("year", "value"),
+        Input("dev-type", "value"),
+        Input("review-status", "children"),
+    )
+    def show_position(feature, year, dev_type, _review_status):
+        try:
+            keyvals = site_list(int(year), dev_type_value(dev_type))
+        except PlanningError:
+            return "Couldn't load the site list."
+        current = feature["properties"].get("keyval") if feature else None
+        return position_text(list(keyvals), current, review_store.reviewed())
 
     @app.callback(Output("selected-layer", "data"), Input("selected", "data"))
     def highlight_selected(feature):
@@ -682,10 +918,13 @@ def create_app(client=None, image_search=None, chip_cache=None):
 
     @app.callback(
         Output(window_id("month", ALL), "value"),
+        Output("max-cloud", "value"),
         Input("selected", "data"),
     )
     def prefill_windows(feature):
-        return default_window_values(feature)
+        review = selected_review(feature)
+        max_cloud = review["max_cloud"] if review_has_windows(review) else no_update
+        return default_window_values(feature, review), max_cloud
 
     @app.callback(
         Output(window_id("outline", ALL), "data"),
@@ -712,8 +951,16 @@ def create_app(client=None, image_search=None, chip_cache=None):
     )
     def request_windows(n_clicks, feature, values, max_cloud):
         if ctx.triggered_id != "find-button":
-            # A new site clears the old site's images.
-            return [None] * config.N_WINDOWS, None
+            # A new site clears the old site's images, or brings back the
+            # images saved in its review.
+            review = selected_review(feature)
+            if not review_has_windows(review):
+                return [None] * config.N_WINDOWS, None
+            months, links = zip(*reviews.saved_windows(review), strict=True)
+            return (
+                window_requests(feature, months, review["max_cloud"], 0, links),
+                None,
+            )
         if not feature:
             return [no_update] * config.N_WINDOWS, _muted("Select a site first.")
         return window_requests(feature, values, max_cloud, n_clicks), None
@@ -750,8 +997,15 @@ def create_app(client=None, image_search=None, chip_cache=None):
         status = None
         if result.read_errors:
             status = _muted("Some images couldn't be read; others may exist.")
-        data = {"feature": request["feature"], **result.to_dict()}
-        return data, status, choice_options(result), result.best.image_link
+        data = {
+            "feature": request["feature"],
+            "max_cloud": max_cloud,
+            **result.to_dict(),
+        }
+        links = [c.image_link for c in result.candidates]
+        prefer = request.get("prefer")
+        value = prefer if prefer in links else result.best.image_link
+        return data, status, choice_options(result), value
 
     @app.callback(
         Output(window_id("image", MATCH), "url"),
@@ -790,6 +1044,67 @@ def create_app(client=None, image_search=None, chip_cache=None):
         choice_style = {} if len(result.candidates) > 1 else hidden
         # The panel map and the main map's overlay show the same PNG.
         return overlay_url, bounds, caption, choice_style, overlay_url, bounds
+
+    # --- reviews ------------------------------------------------------------
+
+    @app.callback(
+        Output("verdict", "value"),
+        Output("note", "value"),
+        Output("review-status", "children"),
+        Input("selected", "data"),
+    )
+    def load_review(feature):
+        if not feature:
+            return None, "", None
+        review = selected_review(feature)
+        if not review:
+            return None, "", review_status(None)
+        return review["verdict"], review["note"] or "", review_status(review)
+
+    @app.callback(
+        Output("review-status", "children", allow_duplicate=True),
+        Output("step-request", "data"),
+        Input("save-button", "n_clicks"),
+        Input("save-next-button", "n_clicks"),
+        State("selected", "data"),
+        State("verdict", "value"),
+        State("note", "value"),
+        State(window_id("result", ALL), "data"),
+        State(window_id("choice", ALL), "value"),
+        State(window_id("month", ALL), "value"),
+        State("max-cloud", "value"),
+        prevent_initial_call=True,
+    )
+    def save_review(
+        save_clicks, next_clicks, feature, verdict, note, results, links, months, cloud
+    ):
+        if not feature:
+            return _muted("Select a site first."), no_update
+        if verdict not in reviews.VERDICTS:
+            return _warning("Choose a verdict first."), no_update
+        keyval = feature["properties"]["keyval"]
+        choices = window_choices(results, links, months, keyval)
+        # The threshold the shown images were found with, if any were.
+        max_cloud = next(
+            (r["max_cloud"] for r in results if r and r.get("max_cloud")),
+            float(cloud or config.S2CLOUDLESS_MAX),
+        )
+        geom = aoi_from_feature(feature).geometry.iloc[0]
+        chips, failed = reviews.export_site(
+            chip_cache, keyval, choices, geom, export_dir
+        )
+        record = reviews.review_record(
+            feature["properties"], verdict, note, max_cloud, choices, chips
+        )
+        try:
+            review_store.save(record, geom)
+        except OSError as e:
+            return _error(f"Couldn't save the review: {e.strerror}"), no_update
+        step = no_update
+        if ctx.triggered_id == "save-next-button" and not failed:
+            # Picked up by `select`, which steps to the next site.
+            step = {"n": next_clicks}
+        return review_status(record, failed), step
 
     return app
 

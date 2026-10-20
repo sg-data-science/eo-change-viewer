@@ -30,6 +30,13 @@ def test_wfs_lookup_by_keyval(client):
     assert gdf.crs.to_epsg() == 27700
 
 
+def test_wfs_site_list(client):
+    sites = client.site_list(CRIEFF_YEAR, "housing")
+    assert CRIEFF_KEYVAL in {s["keyval"] for s in sites}
+    order = [(s["local_auth"], s["reference"]) for s in sites]
+    assert order == sorted(order)
+
+
 def test_wfs_search(client):
     gdf = client.search(CRIEFF_YEAR, "crieff", limit=5)
     assert not gdf.empty

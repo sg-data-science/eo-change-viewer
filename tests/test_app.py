@@ -10,9 +10,11 @@ import pytest
 from shapely.geometry import shape
 
 from change_viewer import app as app_module
-from change_viewer import basemap, imagery
+from change_viewer import basemap, config, imagery
 from change_viewer.cache import Cache
+from change_viewer.imagery import Candidate, SearchResult, Window
 from change_viewer.planning import PlanningClient, WfsConfig, parse_features
+from change_viewer.reviews import ReviewStore
 from tests.conftest import FAKE_KEY, FAKE_URL, FakeSession, fixture_text
 
 
@@ -186,8 +188,14 @@ def test_aoi_from_feature_is_native_crs(features):
 @pytest.fixture
 def dash_app(tmp_path):
     client = PlanningClient(WfsConfig.from_url(FAKE_URL), session=FakeSession())
-    chip_cache = Cache(tmp_path)
-    return app_module.create_app(client, chip_cache=chip_cache), chip_cache
+    chip_cache = Cache(tmp_path / "cache")
+    dash = app_module.create_app(
+        client,
+        chip_cache=chip_cache,
+        review_store=ReviewStore(tmp_path / "output" / "reviews.gpkg"),
+        export_dir=tmp_path / "output" / "chips",
+    )
+    return dash, chip_cache
 
 
 def test_chip_route_serves_cached_png(dash_app):
@@ -251,3 +259,93 @@ def test_panel_maps_have_no_basemap():
     # An empty panel should read as "no image", not as a picture of the site.
     panel = app_module._panel_map(0)
     assert not any(isinstance(c, dl.TileLayer) for c in panel._traverse())
+
+
+# --- reviews and stepping ----------------------------------------------------
+
+KEYVALS = ["A", "B", "C", "D"]
+
+
+@pytest.mark.parametrize(
+    ("current", "direction", "skip", "expected"),
+    [
+        ("B", 1, set(), 2),
+        ("B", -1, set(), 0),
+        ("B", 1, {"C"}, 3),
+        ("D", 1, set(), None),
+        ("A", -1, set(), None),
+        ("B", 1, {"C", "D"}, None),
+        (None, 1, set(), 0),  # nothing selected: Next starts at the first
+        ("X", -1, set(), 3),  # not in the list: Previous starts at the last
+        (None, 1, {"A"}, 1),
+    ],
+)
+def test_step_target(current, direction, skip, expected):
+    assert app_module.step_target(KEYVALS, current, direction, skip) == expected
+
+
+def test_position_text():
+    assert app_module.position_text(KEYVALS, "B", {"A", "Z"}) == (
+        "Site 2 of 4 sites · 1 reviewed"
+    )
+    assert app_module.position_text(KEYVALS, "X", set()) == "4 sites · 0 reviewed"
+
+
+LINK = "https://dap.ceda.ac.uk/x/S2B_20230604_T30VVH_utm30n_osgb_vmsk.tif"
+OTHER = "https://dap.ceda.ac.uk/x/S2A_20230611_T30VVH_utm30n_osgb_vmsk.tif"
+
+
+def _result_data(keyval, month="2023-06"):
+    result = SearchResult(
+        Window.parse(month),
+        [Candidate(LINK, "2023-06-04", 2.0), Candidate(OTHER, "2023-06-11", 0.5)],
+    )
+    return {"feature": {"properties": {"keyval": keyval}}, **result.to_dict()}
+
+
+def test_window_choices_records_the_shown_image():
+    choices = app_module.window_choices(
+        [_result_data("K1"), None, _result_data("OLD")],
+        [LINK, None, LINK],
+        ["2023-07", "2024-06", "2025-06"],
+        "K1",
+    )
+    before, after, later = choices
+    # The searched month counts, not one typed in since.
+    assert before.month == "2023-06" and before.candidate.image_link == LINK
+    assert after.month == "2024-06" and after.candidate is None
+    # A result left over from another site is ignored.
+    assert later.month == "2025-06" and later.candidate is None
+    assert [c.name for c in choices] == list(config.WINDOW_NAMES)
+
+
+def test_review_restores_windows_and_images(features):
+    review = {f"{n}_month": None for n in config.WINDOW_NAMES}
+    review |= {f"{n}_image_link": None for n in config.WINDOW_NAMES}
+    review |= {"before_month": "2020-06", "before_image_link": LINK}
+    assert app_module.default_window_values(features[0], review) == [
+        "2020-06",
+        None,
+        None,
+    ]
+    requests = app_module.window_requests(
+        features[0], ["2020-06", None, None], 10, 0, [LINK, None, None]
+    )
+    assert [r["prefer"] for r in requests] == [LINK, None, None]
+    # Without a saved month, the defaults from the application dates are used.
+    review["before_month"] = None
+    assert app_module.default_window_values(features[0], review) == (
+        app_module.default_window_values(features[0])
+    )
+
+
+def test_review_status_text():
+    assert "Not reviewed" in str(app_module.review_status(None))
+    record = {
+        "verdict": "no change",
+        "saved_at": "2026-10-20T14:03:09",
+        "before_chip": "chips/K1/a.tif",
+    }
+    text = str(app_module.review_status(record, failed=["after"]))
+    assert "No change" in text and "2026-10-20 14:03" in text
+    assert "1 image exported" in text and "after image" in text

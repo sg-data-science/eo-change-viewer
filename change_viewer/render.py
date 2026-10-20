@@ -1,8 +1,9 @@
 """Turn a Sentinel-2 ARD image into RGB chips of one site.
 
 Two PNGs are made from the same read: a panel chip in the image's own grid
-(EPSG:27700) with the site outline drawn on, for comparing dates side by side,
-and a map overlay warped to EPSG:3857 for Leaflet.
+(EPSG:27700) with the site outline drawn on, kept for export, and a map
+overlay warped to EPSG:3857 for Leaflet. `export_bands` saves every band of
+the same area as a GeoTIFF, as input for later modelling.
 """
 
 import inspect
@@ -165,3 +166,33 @@ def render_chip(image_link, geom):
         overlay_png=encode_png(overlay),
         overlay_bounds=bounds,
     )
+
+
+def export_bands(image_link, geom, path):
+    """Write every band of the chip area around `geom` to a GeoTIFF at `path`.
+
+    Values, data type, nodata and band descriptions are kept as they are in
+    the source image; outside the image is nodata.
+    """
+    bounds = chip_bounds(geom)
+    with rio.open(image_link) as src:
+        nodata = 0 if src.nodata is None else src.nodata
+        window = from_bounds(*bounds, src.transform).round_offsets().round_lengths()
+        data = src.read(window=window, boundless=True, fill_value=nodata)
+        profile = {
+            "driver": "GTiff",
+            "width": data.shape[2],
+            "height": data.shape[1],
+            "count": data.shape[0],
+            "dtype": data.dtype,
+            "crs": src.crs,
+            "transform": rio.windows.transform(window, src.transform),
+            "nodata": nodata,
+            "compress": "deflate",
+        }
+        descriptions = src.descriptions
+    with rio.open(path, "w", **profile) as dst:
+        dst.write(data)
+        for band, description in enumerate(descriptions, start=1):
+            if description:
+                dst.set_band_description(band, description)

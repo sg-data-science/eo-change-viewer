@@ -114,3 +114,19 @@ def test_render_chip(ard_tif):
     assert chip.panel_png.startswith(b"\x89PNG")
     assert chip.overlay_png.startswith(b"\x89PNG")
     assert len(chip.overlay_bounds) == 2
+
+
+def test_export_bands_keeps_all_bands_and_values(ard_tif, tmp_path):
+    geom = box(300250, 700150, 300300, 700200)
+    out = tmp_path / "chip.tif"
+    render.export_bands(ard_tif, geom, out)
+    with rio.open(out) as dst:
+        assert dst.count == 10 and dst.dtypes[0] == "uint16"
+        assert dst.nodata == 0 and dst.crs.to_epsg() == 27700
+        assert dst.bounds == pytest.approx(render.chip_bounds(geom))
+        data = dst.read()
+    # Inside the image the source values come through unscaled.
+    middle = data[:, data.shape[1] // 2, data.shape[2] // 2]
+    assert list(middle[:3]) == [30, 75, 300] and middle[3] == 500
+    # The chip reaches past the image, which is nodata.
+    assert (data == 0).any()

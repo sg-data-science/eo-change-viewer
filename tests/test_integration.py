@@ -52,3 +52,13 @@ def test_basemap_capture_date():
 
     info = image_info(-3.84, 56.373)
     assert info is not None and info.date.year >= 2014
+
+
+def test_image_search_and_render(client):
+    from change_viewer import imagery, render
+
+    aoi = client.by_keyval(CRIEFF_YEAR, CRIEFF_KEYVAL)
+    result = imagery.ImageSearch().search(aoi, imagery.Window(2023, 6))
+    assert result.source == "stac" and result.best is not None
+    chip = render.render_chip(result.best.image_link, aoi.geometry.iloc[0])
+    assert chip.panel_png.startswith(b"\x89PNG")

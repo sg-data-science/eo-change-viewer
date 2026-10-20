@@ -1,4 +1,8 @@
-"""Dash app: planning polygons on a map, with search and click lookup.
+"""Dash app: planning polygons on a map, and Sentinel-2 chips of one site.
+
+Pick a site by clicking or searching, set up to three month windows and press
+Find. Each window is searched in its own callback, so the three run in
+parallel and each shows its own progress.
 
 Run with `python -m change_viewer.app` and open http://localhost:8050.
 """
@@ -7,13 +11,18 @@ import argparse
 import functools
 import json
 import math
+from datetime import date
 
 import dash_bootstrap_components as dbc
 import dash_leaflet as dl
+import geopandas as gpd
 from dash import ALL, MATCH, Dash, Input, Output, State, ctx, dcc, html, no_update
+from flask import abort, send_file
+from rasterio.errors import RasterioIOError
 from shapely.geometry import shape
 
-from change_viewer import basemap, config
+from change_viewer import basemap, config, imagery
+from change_viewer.cache import CHIP_ROUTE, Cache, cached_chip, cached_search
 from change_viewer.planning import PlanningClient, PlanningError
 from change_viewer.proxy import ROUTE as WMS_ROUTE
 from change_viewer.proxy import register_wms_proxy
@@ -52,6 +61,14 @@ ATTRIBUTE_LABELS = {
 
 ALL_TYPES = "__all__"
 BASEMAP_DATE_LABEL = "Basemap image date"
+
+WINDOW_NAMES = ["Before", "After", "Later"]
+# A transparent pixel, so map overlays exist before there's an image.
+BLANK_PNG = (
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42"
+    "mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+)
+BLANK_BOUNDS = [[0, 0], [0.0001, 0.0001]]
 
 
 def to_features(gdf):
@@ -177,6 +194,173 @@ def search_hits(features):
     ]
 
 
+def window_id(kind, index):
+    return {"type": f"window-{kind}", "index": index}
+
+
+def default_window_values(feature):
+    """`YYYY-MM` values for the window inputs, or None where left blank."""
+    if not feature:
+        return [None] * config.N_WINDOWS
+    props = feature["properties"]
+    windows = imagery.default_windows(props.get("date_recei"), props.get("date_decis"))
+    return [w.key if w else None for w in windows]
+
+
+def window_requests(feature, values, max_cloud, n_clicks):
+    """One search request per window, for the window callbacks."""
+    return [
+        {
+            "feature": feature,
+            "window": value or None,
+            "max_cloud": float(max_cloud or config.S2CLOUDLESS_MAX),
+            # Makes each press a new request, even with the same windows.
+            "n": n_clicks,
+        }
+        for value in values
+    ]
+
+
+def aoi_from_feature(feature):
+    """A one-row GeoDataFrame in EPSG:27700 for a selected feature."""
+    return gpd.GeoDataFrame.from_features([feature], crs=config.DISPLAY_CRS).to_crs(
+        config.NATIVE_CRS
+    )
+
+
+def candidate_label(candidate, best):
+    label = f"{candidate.image_date} · {candidate.cloud:.1f}% cloud"
+    return f"{label} (clearest)" if candidate == best else label
+
+
+def choice_options(result):
+    """Dropdown options for every image that passed, in date order."""
+    best = result.best
+    return [
+        {"label": candidate_label(c, best), "value": c.image_link}
+        for c in result.candidates
+    ]
+
+
+def window_problem(window, today=None):
+    """Why a window can't have images, or None if it can."""
+    if window.start > (today or date.today()):
+        return f"{window.label} is in the future."
+    if window.year < config.S2_FIRST_YEAR:
+        return f"Sentinel-2 images start in {config.S2_FIRST_YEAR}."
+    return None
+
+
+def no_image_message(window, max_cloud):
+    return (
+        f"No image of this site with under {max_cloud:g}% cloud in "
+        f"{window.label}. Try another month or raise the max cloud."
+    )
+
+
+def _warning(message):
+    return dbc.Alert(message, color="warning", className="py-2 small mb-0")
+
+
+def _muted(message):
+    return html.P(message, className="text-muted small mb-0")
+
+
+def _window_card(index):
+    return dbc.Card(
+        [
+            dbc.CardHeader(
+                [
+                    html.Span(WINDOW_NAMES[index], className="fw-bold me-2"),
+                    dcc.Input(
+                        id=window_id("month", index),
+                        type="month",
+                        className="form-control form-control-sm d-inline-block",
+                        style={"width": "11rem"},
+                    ),
+                ],
+                className="d-flex align-items-center",
+            ),
+            dbc.CardBody(
+                [
+                    dcc.Loading(
+                        html.Div(
+                            [
+                                html.Div(id=window_id("status", index)),
+                                html.Img(
+                                    id=window_id("chip", index),
+                                    style={"width": "100%", "display": "none"},
+                                ),
+                            ],
+                            style={"minHeight": "4rem"},
+                        ),
+                        custom_spinner=html.Div(
+                            [dbc.Spinner(size="sm"), " Searching CEDA…"],
+                            className="small text-muted",
+                        ),
+                        overlay_style={"visibility": "visible", "opacity": 0.4},
+                    ),
+                    html.Div(id=window_id("caption", index), className="small mt-1"),
+                    # A native select, as its options always draw on top; a
+                    # Dash dropdown's menu was cut off at the bottom of the page.
+                    dbc.Select(
+                        id=window_id("choice", index),
+                        options=[],
+                        size="sm",
+                        className="mt-1",
+                        style={"display": "none"},
+                    ),
+                ],
+                className="p-2",
+            ),
+            dcc.Store(id=window_id("request", index)),
+            dcc.Store(id=window_id("result", index)),
+        ],
+        className="h-100",
+    )
+
+
+def _image_panel():
+    return [
+        dbc.Row(
+            [
+                dbc.Col(html.H5("Sentinel-2 images", className="mb-0"), width="auto"),
+                dbc.Col(
+                    dbc.InputGroup(
+                        [
+                            dbc.InputGroupText("Max cloud %"),
+                            dbc.Input(
+                                id="max-cloud",
+                                type="number",
+                                min=1,
+                                max=100,
+                                step=1,
+                                value=config.S2CLOUDLESS_MAX,
+                                style={"maxWidth": "5rem"},
+                            ),
+                        ],
+                        size="sm",
+                    ),
+                    width="auto",
+                ),
+                dbc.Col(
+                    dbc.Button("Find images", id="find-button", n_clicks=0, size="sm"),
+                    width="auto",
+                ),
+                dbc.Col(html.Div(id="find-status", className="small"), width=True),
+            ],
+            className="g-2 align-items-center my-2",
+        ),
+        dbc.Row(
+            [
+                dbc.Col(_window_card(i), md=4, className="mb-2")
+                for i in range(config.N_WINDOWS)
+            ],
+            className="g-2",
+        ),
+    ]
+
+
 def _sidebar():
     return [
         html.H4("change-viewer", className="mt-2"),
@@ -229,7 +413,7 @@ def _map():
         id="map",
         center=config.MAP_CENTER,
         zoom=config.MAP_ZOOM,
-        style={"height": "calc(100vh - 1rem)", "marginTop": "0.5rem"},
+        style={"height": "58vh", "marginTop": "0.5rem"},
         children=[
             dl.LayersControl(
                 [
@@ -268,6 +452,18 @@ def _map():
                         name="Planning applications",
                         checked=True,
                     ),
+                ]
+                + [
+                    dl.Overlay(
+                        dl.ImageOverlay(
+                            id=window_id("overlay", i),
+                            url=BLANK_PNG,
+                            bounds=BLANK_BOUNDS,
+                        ),
+                        name=f"Sentinel-2: {WINDOW_NAMES[i].lower()}",
+                        checked=False,
+                    )
+                    for i in range(config.N_WINDOWS)
                 ],
                 id="layers",
             ),
@@ -293,9 +489,15 @@ def _info(message):
     return dbc.Alert(message, color="info", className="py-2 small")
 
 
-def create_app(client=None):
-    """Build the Dash app. `client` defaults to one configured from `.env`."""
+def create_app(client=None, image_search=None, chip_cache=None):
+    """Build the Dash app.
+
+    `client` defaults to one configured from `.env`; `image_search` and
+    `chip_cache` to the real CEDA search and the on-disk cache.
+    """
     client = client or PlanningClient.from_env()
+    image_search = image_search or imagery.ImageSearch()
+    chip_cache = chip_cache or Cache()
     app = Dash(
         __name__,
         title="change-viewer",
@@ -303,11 +505,28 @@ def create_app(client=None):
     )
     register_wms_proxy(app.server, client.config)
 
+    @app.server.route(f"{CHIP_ROUTE}/<keyval>/<filename>")
+    def chip_file(keyval, filename):
+        if not filename.endswith(".png"):
+            abort(404)
+        try:
+            path = chip_cache.path(keyval, filename)
+        except ValueError:
+            abort(404)
+        if not path.is_file():
+            abort(404)
+        return send_file(path, mimetype="image/png", max_age=86400)
+
     app.layout = dbc.Container(
         [
             dbc.Row(
                 [
-                    dbc.Col(_map(), md=8, lg=9),
+                    dbc.Col(
+                        [_map(), *_image_panel()],
+                        md=8,
+                        lg=9,
+                        style={"height": "100vh", "overflowY": "auto"},
+                    ),
                     dbc.Col(
                         _sidebar(),
                         md=4,
@@ -421,6 +640,116 @@ def create_app(client=None):
         if not feature or basemap_date_cell_id(feature) != cell_id:
             return no_update
         return basemap_date_text(feature)
+
+    # --- Sentinel-2 windows -------------------------------------------------
+
+    @app.callback(
+        Output(window_id("month", ALL), "value"),
+        Input("selected", "data"),
+    )
+    def prefill_windows(feature):
+        return default_window_values(feature)
+
+    @app.callback(
+        Output(window_id("request", ALL), "data"),
+        Output("find-status", "children"),
+        Input("find-button", "n_clicks"),
+        Input("selected", "data"),
+        State(window_id("month", ALL), "value"),
+        State("max-cloud", "value"),
+        prevent_initial_call=True,
+    )
+    def request_windows(n_clicks, feature, values, max_cloud):
+        if ctx.triggered_id != "find-button":
+            # A new site clears the old site's images.
+            return [None] * config.N_WINDOWS, None
+        if not feature:
+            return [no_update] * config.N_WINDOWS, _muted("Select a site first.")
+        return window_requests(feature, values, max_cloud, n_clicks), None
+
+    @app.callback(
+        Output(window_id("result", MATCH), "data"),
+        Output(window_id("status", MATCH), "children"),
+        Output(window_id("choice", MATCH), "options"),
+        Output(window_id("choice", MATCH), "value"),
+        Input(window_id("request", MATCH), "data"),
+    )
+    def search_window(request):
+        if not request:
+            return None, None, [], None
+        if not request["window"]:
+            return None, _muted("No month set."), [], None
+        window = imagery.Window.parse(request["window"])
+        problem = window_problem(window)
+        if problem:
+            return None, _muted(problem), [], None
+        max_cloud = request["max_cloud"]
+        aoi = aoi_from_feature(request["feature"])
+        try:
+            result = cached_search(chip_cache, image_search, aoi, window, max_cloud)
+        except imagery.CedaUnavailable:
+            return (
+                None,
+                _error("CEDA unavailable, try again. This is a server problem."),
+                [],
+                None,
+            )
+        if not result.candidates:
+            return None, _warning(no_image_message(window, max_cloud)), [], None
+        status = None
+        if result.read_errors:
+            status = _muted("Some images couldn't be read; others may exist.")
+        data = {"feature": request["feature"], **result.to_dict()}
+        return data, status, choice_options(result), result.best.image_link
+
+    @app.callback(
+        Output(window_id("chip", MATCH), "src"),
+        Output(window_id("chip", MATCH), "style"),
+        Output(window_id("caption", MATCH), "children"),
+        Output(window_id("choice", MATCH), "style"),
+        Output(window_id("overlay", MATCH), "url"),
+        Output(window_id("overlay", MATCH), "bounds"),
+        Input(window_id("choice", MATCH), "value"),
+        State(window_id("result", MATCH), "data"),
+    )
+    def show_window_image(image_link, data):
+        hidden = {"display": "none"}
+        if not image_link or not data:
+            return None, hidden, None, hidden, BLANK_PNG, BLANK_BOUNDS
+        result = imagery.SearchResult.from_dict(data)
+        candidate = next(c for c in result.candidates if c.image_link == image_link)
+        feature = data["feature"]
+        aoi = aoi_from_feature(feature)
+        try:
+            panel_url, overlay_url, bounds = cached_chip(
+                chip_cache,
+                feature["properties"]["keyval"],
+                candidate,
+                aoi.geometry.iloc[0],
+            )
+        except RasterioIOError:
+            return (
+                None,
+                hidden,
+                _error("Couldn't read the image from CEDA, try again."),
+                hidden,
+                BLANK_PNG,
+                BLANK_BOUNDS,
+            )
+        source = "CEDA STAC" if result.source == "stac" else "CEDA archive listing"
+        caption = [
+            html.Span(candidate_label(candidate, result.best), className="fw-bold"),
+            html.Span(f" · {source}", className="text-muted"),
+        ]
+        choice_style = {} if len(result.candidates) > 1 else hidden
+        return (
+            panel_url,
+            {"width": "100%", "imageRendering": "pixelated"},
+            caption,
+            choice_style,
+            overlay_url,
+            bounds,
+        )
 
     return app
 

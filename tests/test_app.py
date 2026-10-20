@@ -7,7 +7,8 @@ import pytest
 from shapely.geometry import shape
 
 from change_viewer import app as app_module
-from change_viewer import basemap
+from change_viewer import basemap, imagery
+from change_viewer.cache import Cache
 from change_viewer.planning import PlanningClient, WfsConfig, parse_features
 from tests.conftest import FAKE_KEY, FAKE_URL, FakeSession, fixture_text
 
@@ -130,3 +131,85 @@ def test_basemap_date_row_off_by_default(features):
     panel = str(app_module.attributes_panel(features[0]))
     assert app_module.BASEMAP_DATE_LABEL not in panel
     assert "basemap-date" not in panel
+
+
+# --- Sentinel-2 windows -------------------------------------------------------
+
+
+def test_default_window_values(features):
+    site = next(f for f in features if f["properties"]["keyval"] == "R6M0KPKVIRF00")
+    # Received 2022-02-01, decided 2022-04-22.
+    assert app_module.default_window_values(site) == ["2021-06", "2023-06", "2024-06"]
+    assert app_module.default_window_values(None) == [None, None, None]
+
+
+def test_window_requests(features):
+    requests = app_module.window_requests(
+        features[0], ["2021-06", None, ""], "7", n_clicks=3
+    )
+    assert [r["window"] for r in requests] == ["2021-06", None, None]
+    assert {r["max_cloud"] for r in requests} == {7.0}
+    assert {r["n"] for r in requests} == {3}
+
+
+def test_window_problem():
+    today = date(2026, 10, 20)
+    assert app_module.window_problem(imagery.Window(2023, 6), today) is None
+    assert "future" in app_module.window_problem(imagery.Window(2026, 11), today)
+    assert "2015" in app_module.window_problem(imagery.Window(2014, 6), today)
+
+
+def test_choice_options_mark_clearest():
+    result = imagery.SearchResult(
+        imagery.Window(2023, 6),
+        [
+            imagery.Candidate("a", "2023-06-04", 3.0),
+            imagery.Candidate("b", "2023-06-16", 0.0),
+        ],
+    )
+    options = app_module.choice_options(result)
+    assert [o["value"] for o in options] == ["a", "b"]
+    assert options[1]["label"] == "2023-06-16 · 0.0% cloud (clearest)"
+    assert "clearest" not in options[0]["label"]
+
+
+def test_aoi_from_feature_is_native_crs(features):
+    aoi = app_module.aoi_from_feature(features[0])
+    assert aoi.crs.to_epsg() == 27700
+    assert aoi["keyval"].iloc[0] == features[0]["properties"]["keyval"]
+    assert 300000 < aoi.geometry.iloc[0].centroid.x < 500000
+
+
+@pytest.fixture
+def dash_app(tmp_path):
+    client = PlanningClient(WfsConfig.from_url(FAKE_URL), session=FakeSession())
+    chip_cache = Cache(tmp_path)
+    return app_module.create_app(client, chip_cache=chip_cache), chip_cache
+
+
+def test_chip_route_serves_cached_png(dash_app):
+    dash, chip_cache = dash_app
+    path = chip_cache.path("K1", "img_b200_panel.png")
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"\x89PNGfake")
+    resp = dash.server.test_client().get("/chips/K1/img_b200_panel.png")
+    assert resp.status_code == 200 and resp.data == b"\x89PNGfake"
+    assert resp.mimetype == "image/png"
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["/chips/K1/missing.png", "/chips/K1/search_2023-06_c10.json", "/chips/K1/.x.png"],
+)
+def test_chip_route_rejects_other_files(dash_app, url):
+    dash, _ = dash_app
+    assert dash.server.test_client().get(url).status_code == 404
+
+
+@pytest.mark.parametrize("url", ["/chips/K1/..%2F..%2F.env", "/chips/..%2F/x.png"])
+def test_chip_route_traversal_serves_nothing(dash_app, url):
+    # These don't match the chip route, so Dash serves its usual app page.
+    dash, _ = dash_app
+    resp = dash.server.test_client().get(url)
+    assert resp.mimetype != "image/png"
+    assert b"PLANNING_POLY_WFS" not in resp.data

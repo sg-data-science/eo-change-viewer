@@ -1,0 +1,4 @@
+/* Show Sentinel-2 overlays as crisp 10 m pixels rather than blurred. */
+.leaflet-image-layer {
+    image-rendering: pixelated;
+}

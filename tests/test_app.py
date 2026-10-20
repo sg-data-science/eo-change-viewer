@@ -6,8 +6,9 @@ from datetime import date
 from pathlib import Path
 
 import dash_leaflet as dl
+import geopandas as gpd
 import pytest
-from shapely.geometry import shape
+from shapely.geometry import box, shape
 
 from change_viewer import app as app_module
 from change_viewer import basemap, config, imagery
@@ -349,3 +350,21 @@ def test_review_status_text():
     text = str(app_module.review_status(record, failed=["after"]))
     assert "No change" in text and "2026-10-20 14:03" in text
     assert "1 image exported" in text and "after image" in text
+
+
+def _square_feature(side_m):
+    """A square site of `side_m` metres, as a selected feature (EPSG:4326)."""
+    gdf = gpd.GeoDataFrame(
+        {"keyval": ["K1"]},
+        geometry=[box(300000, 700000, 300000 + side_m, 700000 + side_m)],
+        crs=config.NATIVE_CRS,
+    )
+    return app_module.to_features(gdf)[0]
+
+
+def test_site_size_limit():
+    assert app_module.site_size_m(_square_feature(500)) == pytest.approx(500, abs=0.1)
+    assert app_module.site_problem(_square_feature(9_000)) is None
+    message = app_module.site_problem(_square_feature(12_000))
+    assert "12.0 km across" in message and "10 km" in message
+    assert app_module.site_problem(_square_feature(500), max_size_m=400)

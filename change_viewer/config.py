@@ -66,6 +66,11 @@ DEFAULT_WINDOW_MONTH = 6
 # square, which leaves room to pan around in the panel maps. Each band is
 # clipped to RGB_CLIP and scaled to 0-255.
 CHIP_BUFFER_M = 1000
+# Sites whose bounding box is longer than this on either side aren't
+# searched. Chips grow with the site, and a few polygons are tens or hundreds
+# of km across (linear schemes, or bad geometry), which would make huge reads,
+# exports and browser images, and cross Sentinel-2 tiles.
+MAX_SITE_SIZE_M = 10_000
 RGB_CLIP = (0, 150)
 # Panel chips are enlarged to about this many pixels across, so the burnt-in
 # polygon outline stays thin relative to the 10 m pixels.

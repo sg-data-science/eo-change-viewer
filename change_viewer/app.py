@@ -261,6 +261,23 @@ def choice_options(result):
     ]
 
 
+def site_size_m(feature):
+    """Longest side of the feature's bounding box in metres (EPSG:27700)."""
+    minx, miny, maxx, maxy = aoi_from_feature(feature).total_bounds
+    return max(maxx - minx, maxy - miny)
+
+
+def site_problem(feature, max_size_m=config.MAX_SITE_SIZE_M):
+    """Why a site can't be searched for images, or None if it can."""
+    size = site_size_m(feature)
+    if size > max_size_m:
+        return (
+            f"This site is {size / 1000:,.1f} km across, too large to check "
+            f"with Sentinel-2 chips (the limit is {max_size_m / 1000:g} km)."
+        )
+    return None
+
+
 def window_problem(window, today=None):
     """Why a window can't have images, or None if it can."""
     if window.start > (today or date.today()):
@@ -950,6 +967,11 @@ def create_app(
         prevent_initial_call=True,
     )
     def request_windows(n_clicks, feature, values, max_cloud):
+        problem = site_problem(feature) if feature else None
+        if problem:
+            # Only say why when asked; a new selection just clears the panels.
+            message = _warning(problem) if ctx.triggered_id == "find-button" else None
+            return [None] * config.N_WINDOWS, message
         if ctx.triggered_id != "find-button":
             # A new site clears the old site's images, or brings back the
             # images saved in its review.

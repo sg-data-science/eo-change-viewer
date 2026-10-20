@@ -247,16 +247,23 @@ def aoi_from_feature(feature):
     )
 
 
-def candidate_label(candidate, best):
+def candidate_label(candidate, result):
+    """Date and cloud of an image, with its tile when the date isn't unique.
+
+    One acquisition can be published on two overlapping tiles, giving two
+    images with the same date.
+    """
     label = f"{candidate.image_date} · {candidate.cloud:.1f}% cloud"
-    return f"{label} (clearest)" if candidate == best else label
+    same_date = [c for c in result.candidates if c.image_date == candidate.image_date]
+    if len(same_date) > 1 and candidate.tile:
+        label = f"{label} · {candidate.tile}"
+    return f"{label} (clearest)" if candidate == result.best else label
 
 
 def choice_options(result):
     """Dropdown options for every image that passed, in date order."""
-    best = result.best
     return [
-        {"label": candidate_label(c, best), "value": c.image_link}
+        {"label": candidate_label(c, result), "value": c.image_link}
         for c in result.candidates
     ]
 
@@ -368,6 +375,16 @@ def review_status(record, failed=()):
             )
         )
     return children
+
+
+def review_edited(review, verdict, note):
+    """True if the verdict or note differ from what's saved for the site."""
+    saved_verdict = review["verdict"] if review else None
+    saved_note = (review["note"] if review else None) or ""
+    return verdict != saved_verdict or (note or "").strip() != saved_note.strip()
+
+
+UNSAVED_MESSAGE = "Not saved yet: press Save before moving on."
 
 
 def _warning(message):
@@ -1060,7 +1077,7 @@ def create_app(
             return *blank, message, hidden, *blank
         source = "CEDA STAC" if result.source == "stac" else "CEDA archive listing"
         caption = [
-            html.Span(candidate_label(candidate, result.best), className="fw-bold"),
+            html.Span(candidate_label(candidate, result), className="fw-bold"),
             html.Span(f" · {source}", className="text-muted"),
         ]
         choice_style = {} if len(result.candidates) > 1 else hidden
@@ -1082,6 +1099,23 @@ def create_app(
         if not review:
             return None, "", review_status(None)
         return review["verdict"], review["note"] or "", review_status(review)
+
+    # Warns while the verdict or note differ from what's saved, since Next
+    # and Previous don't save.
+    @app.callback(
+        Output("review-status", "children", allow_duplicate=True),
+        Input("verdict", "value"),
+        Input("note", "value"),
+        State("selected", "data"),
+        prevent_initial_call=True,
+    )
+    def flag_unsaved(verdict, note, feature):
+        if not feature:
+            return no_update
+        review = selected_review(feature)
+        if review_edited(review, verdict, note):
+            return _warning(UNSAVED_MESSAGE)
+        return review_status(review)
 
     @app.callback(
         Output("review-status", "children", allow_duplicate=True),

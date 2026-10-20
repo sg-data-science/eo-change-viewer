@@ -368,3 +368,32 @@ def test_site_size_limit():
     message = app_module.site_problem(_square_feature(12_000))
     assert "12.0 km across" in message and "10 km" in message
     assert app_module.site_problem(_square_feature(500), max_size_m=400)
+
+
+def test_choice_options_name_tile_when_date_repeats():
+    uvg = "https://x/S2A_20230603_latn555lonw0037_T30UVG_ORB037_utm30n_osgb.tif"
+    vvh = "https://x/S2A_20230603_latn563lonw0037_T30VVH_ORB037_utm30n_osgb.tif"
+    other = "https://x/S2A_20230616_latn555lonw0037_T30UVG_ORB080_utm30n_osgb.tif"
+    result = imagery.SearchResult(
+        imagery.Window(2023, 6),
+        [
+            imagery.Candidate(uvg, "2023-06-03", 0.0),
+            imagery.Candidate(vvh, "2023-06-03", 0.0),
+            imagery.Candidate(other, "2023-06-16", 1.0),
+        ],
+    )
+    labels = [o["label"] for o in app_module.choice_options(result)]
+    assert labels == [
+        "2023-06-03 · 0.0% cloud · T30UVG (clearest)",
+        "2023-06-03 · 0.0% cloud · T30VVH",
+        "2023-06-16 · 1.0% cloud",
+    ]
+
+
+def test_review_edited():
+    saved = {"verdict": "change", "note": "houses"}
+    assert not app_module.review_edited(saved, "change", " houses ")
+    assert app_module.review_edited(saved, "unsure", "houses")
+    assert app_module.review_edited(saved, "change", "")
+    assert not app_module.review_edited(None, None, "")
+    assert app_module.review_edited(None, "change", None)

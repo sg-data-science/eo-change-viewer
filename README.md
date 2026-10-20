@@ -51,8 +51,9 @@ python -m change_viewer.app --port 8051 --debug
   the main map. When more than one image passes the checks, a dropdown
   switches between them.
 - **Review:** choose Change / No change / Unsure, add an optional note, and
-  press **Save** or **Save and next**. Reopening a reviewed polygon restores
-  its verdict, note, windows and chosen images.
+  press **Save** or **Save and next**. Next and Previous don't save; the
+  status line warns while there are unsaved changes. Reopening a reviewed
+  polygon restores its verdict, note, windows and chosen images.
 
 ## Image search
 

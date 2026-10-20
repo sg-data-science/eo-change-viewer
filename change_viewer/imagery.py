@@ -9,6 +9,7 @@ would check the same images more slowly, so it isn't tried.
 import calendar
 import logging
 import os
+import re
 import threading
 from dataclasses import asdict, dataclass, field
 from datetime import date
@@ -106,6 +107,12 @@ class Candidate:
         """The file name without its long processing suffix."""
         name = self.image_link.rsplit("/", 1)[-1].removesuffix(".tif")
         return name.split("_utm")[0].split("_osgb")[0]
+
+    @property
+    def tile(self):
+        """The MGRS tile code, e.g. "T30VVH", or None if the name lacks one."""
+        match = re.search(r"_(T\d{2}[A-Z]{3})_", self.image_link.rsplit("/", 1)[-1])
+        return match.group(1) if match else None
 
 
 def choose(candidates):

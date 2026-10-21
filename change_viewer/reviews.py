@@ -26,7 +26,23 @@ from change_viewer import config, render
 from change_viewer.cache import cached_chip, safe_name
 from change_viewer.imagery import Candidate
 
-VERDICTS = {"change": "Change", "no change": "No change", "unsure": "Unsure"}
+# Each change verdict says which pair of windows it covers, so a label can be
+# tested against a method that compares two years (e.g. annual embeddings).
+VERDICTS = {
+    "change after": "Change – after",
+    "change later": "Change – later only",
+    "no change": "No change",
+    "unsure": "Unsure",
+}
+# The windows that must have an image shown for each verdict to make sense.
+# "No change" covers every window with an image, so it needs the before image
+# and at least one other, checked in `verdict_problem`.
+VERDICT_NEEDS = {
+    "change after": ("before", "after"),
+    "change later": ("before", "after", "later"),
+    "no change": ("before",),
+    "unsure": (),
+}
 LAYER = "reviews"
 # Site attributes copied into each review.
 SITE_FIELDS = ("keyval", "year", "reference", "local_auth", "dev_desc_is")
@@ -62,7 +78,8 @@ def review_record(props, verdict, note, max_cloud, choices, chips, saved_at=None
     """A review as a flat dict of `COLUMNS`.
 
     `props` are the site's attributes, `choices` a `WindowChoice` per window,
-    and `chips` the exported GeoTIFF paths by window name.
+    and `chips` the exported GeoTIFF paths by window name. The verdict's
+    years are the windows' `_month` and `_image_date` columns.
     """
     if verdict not in VERDICTS:
         raise ValueError(f"unknown verdict: {verdict!r}")
@@ -87,6 +104,24 @@ def review_record(props, verdict, note, max_cloud, choices, chips, saved_at=None
             }
         )
     return {column: record.get(column) for column in COLUMNS}
+
+
+def verdict_problem(verdict, choices):
+    """Why `verdict` can't be saved with these window choices, or None.
+
+    "Change – later only" claims the after image shows no change yet, so it
+    needs that image as well as the later one.
+    """
+    shown = {c.name for c in choices if c.candidate is not None}
+    missing = [name for name in VERDICT_NEEDS[verdict] if name not in shown]
+    if verdict == "no change" and not shown - {"before"}:
+        missing.append("after or later")
+    if not missing:
+        return None
+    return (
+        f'"{VERDICTS[verdict]}" needs a {" and ".join(missing)} image. '
+        "Find one, or choose Unsure."
+    )
 
 
 def saved_windows(record):

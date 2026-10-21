@@ -83,15 +83,25 @@ python -m change_viewer.app --port 8051 --debug
   **Skip reviewed** passes over polygons that already have a saved review.
 - **Find images:** the three windows are pre-filled from the application
   dates: June of the year before receipt, then June one and two years after
-  the decision (or after receipt if there's no decision). Windows can be
-  edited. Each window is searched in its own callback, in parallel.
+  the decision (or after receipt if there's no decision). Each window's
+  month and year can be changed with its dropdowns. Each window is searched
+  in its own callback, in parallel.
 - **Panels:** each window's image shows in a small map. The three maps are
   linked, so panning or zooming one moves the others. **Link to main map**
   links the main map too. Each image can also be turned on as an overlay on
   the main map. When more than one image passes the checks, a dropdown
   switches between them.
-- **Review:** choose Change / No change / Unsure, add an optional note, and
-  press **Save** or **Save and next**. Next and Previous don't save; the
+- **Review:** compare each later image with **before** and choose:
+  - **Change – after:** change shows by the after image.
+  - **Change – later only:** no change by the after image, but change by
+    the later one.
+  - **No change:** no change in any image shown.
+  - **Unsure.**
+
+  Add an optional note, and press **Save** or **Save and next**. A verdict
+  can't be saved without the images it compares, e.g. "Change – later
+  only" needs the before, after and later images; choose Unsure if one is
+  missing. Each window's month and image date are saved with the verdict. Next and Previous don't save; the
   status line warns while there are unsaved changes. Reopening a reviewed
   polygon restores its verdict, note, windows and chosen images.
 
@@ -137,7 +147,7 @@ query filters on `year` first. The fields used are `keyval` (unique ID),
 | Path | Contents |
 | --- | --- |
 | `cache/<keyval>/` | Search results (JSON) and display PNGs. Safe to delete. A search is cached only once its window has ended. |
-| `output/reviews.gpkg` | Layer `reviews`: one row per polygon, with geometry in EPSG:27700, `verdict`, `note`, `max_cloud` and `saved_at`. For each window (`before`, `after`, `later`) it has `_month`, `_image_date`, `_cloud`, `_image_id`, `_image_link` and `_chip`. |
+| `output/reviews.gpkg` | Layer `reviews`: one row per polygon, with geometry in EPSG:27700, `verdict` (`change after`, `change later`, `no change` or `unsure`), `note`, `max_cloud` and `saved_at`. For each window (`before`, `after`, `later`) it has `_month`, `_image_date`, `_cloud`, `_image_id`, `_image_link` and `_chip`. |
 | `output/chips/<keyval>/` | For each chosen image: `<window>_<image_id>_b<buffer>.tif` (every band, values unchanged from the source) and a `.png` with the polygon outline. |
 
 `cache/` and `output/` are gitignored. `output/` holds the saved reviews, so

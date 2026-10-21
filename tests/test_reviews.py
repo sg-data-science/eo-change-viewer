@@ -34,7 +34,7 @@ def choices(before=LINK):
     ]
 
 
-def record(verdict="change", note=" new houses ", **kwargs):
+def record(verdict="change after", note=" new houses ", **kwargs):
     return reviews.review_record(
         PROPS,
         verdict,
@@ -49,7 +49,7 @@ def record(verdict="change", note=" new houses ", **kwargs):
 def test_review_record_is_flat():
     rec = record()
     assert list(rec) == reviews.COLUMNS
-    assert rec["verdict"] == "change" and rec["note"] == "new houses"
+    assert rec["verdict"] == "change after" and rec["note"] == "new houses"
     assert rec["before_image_id"] == "S2B_20230604_T30VVH"
     assert rec["before_cloud"] == 1.5 and rec["before_chip"] == "chips/K1/before.tif"
     assert rec["after_month"] == "2023-06" and rec["after_image_link"] is None
@@ -67,7 +67,7 @@ def test_store_round_trip_and_replace(tmp_path):
     assert store.get("K1") is None and store.reviewed() == set()
     store.save(record(), GEOM)
     saved = store.get("K1")
-    assert saved["verdict"] == "change" and saved["after_image_link"] is None
+    assert saved["verdict"] == "change after" and saved["after_image_link"] is None
     assert saved["before_cloud"] == 1.5
     assert reviews.saved_windows(saved) == [
         ("2021-06", LINK),
@@ -146,3 +146,41 @@ def test_export_site_reports_unreadable_image(tmp_path, monkeypatch):
 def test_export_site_rejects_unsafe_keyval(tmp_path):
     with pytest.raises(ValueError):
         reviews.export_site(Cache(tmp_path), "../x", choices(), GEOM, tmp_path)
+
+
+def shown(*names):
+    """Window choices with an image shown for each of `names`."""
+    return [
+        WindowChoice(
+            name,
+            "2023-06",
+            Candidate(LINK, "2023-06-04", 1.0) if name in names else None,
+        )
+        for name in config.WINDOW_NAMES
+    ]
+
+
+@pytest.mark.parametrize(
+    ("verdict", "names", "missing"),
+    [
+        ("change after", ("before", "after"), None),
+        ("change after", ("before", "later"), "after"),
+        ("change later", ("before", "after", "later"), None),
+        ("change later", ("before", "later"), "after"),
+        ("no change", ("before", "later"), None),
+        ("no change", ("before",), "after or later"),
+        ("no change", ("after", "later"), "before"),
+        ("unsure", (), None),
+    ],
+)
+def test_verdict_problem(verdict, names, missing):
+    problem = reviews.verdict_problem(verdict, shown(*names))
+    if missing is None:
+        assert problem is None
+    else:
+        assert f"needs a {missing} image" in problem
+
+
+def test_change_verdicts_say_which_window():
+    assert set(reviews.VERDICTS) == set(reviews.VERDICT_NEEDS)
+    assert reviews.VERDICTS["change later"] == "Change – later only"

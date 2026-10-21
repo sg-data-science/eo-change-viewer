@@ -202,6 +202,30 @@ def window_id(kind, index):
     return {"type": f"window-{kind}", "index": index}
 
 
+MONTH_OPTIONS = [
+    {"label": date(2000, m, 1).strftime("%b"), "value": f"{m:02d}"}
+    for m in range(1, 13)
+]
+
+
+def year_options(today=None):
+    last = (today or date.today()).year
+    return [str(y) for y in range(last, config.S2_FIRST_YEAR - 1, -1)]
+
+
+def split_month(value):
+    """(month, year) select values for a `YYYY-MM` window, or Nones."""
+    if not value:
+        return None, None
+    return value[5:7], value[:4]
+
+
+def join_month(month, year):
+    """The `YYYY-MM` window for the month and year selects, None if either
+    is blank."""
+    return f"{year}-{month}" if month and year else None
+
+
 def default_window_values(feature, review=None):
     """`YYYY-MM` values for the window inputs, or None where left blank.
 
@@ -359,7 +383,10 @@ def review_status(record, failed=()):
         html.P(
             [
                 html.Span(
-                    f"Saved: {reviews.VERDICTS[record['verdict']]}",
+                    # .get: reviews saved before the verdicts were split
+                    # still show.
+                    "Saved: "
+                    + reviews.VERDICTS.get(record["verdict"], record["verdict"]),
                     className="fw-bold",
                 ),
                 f" · {saved_at} · {exported} image{'s' * (exported != 1)} exported",
@@ -427,14 +454,24 @@ def _window_card(index):
             dbc.CardHeader(
                 [
                     html.Span(WINDOW_NAMES[index], className="fw-bold me-2"),
-                    dcc.Input(
+                    # Native selects rather than <input type="month">, which
+                    # Firefox shows as a plain text box with no picker.
+                    dbc.Select(
                         id=window_id("month", index),
-                        type="month",
-                        className="form-control form-control-sm d-inline-block",
-                        style={"width": "11rem"},
+                        options=MONTH_OPTIONS,
+                        placeholder="Month",
+                        size="sm",
+                        style={"width": "6rem"},
+                    ),
+                    dbc.Select(
+                        id=window_id("year", index),
+                        options=year_options(),
+                        placeholder="Year",
+                        size="sm",
+                        style={"width": "6rem"},
                     ),
                 ],
-                className="d-flex align-items-center",
+                className="d-flex align-items-center gap-1",
             ),
             dbc.CardBody(
                 [
@@ -952,13 +989,16 @@ def create_app(
 
     @app.callback(
         Output(window_id("month", ALL), "value"),
+        Output(window_id("year", ALL), "value"),
         Output("max-cloud", "value"),
         Input("selected", "data"),
     )
     def prefill_windows(feature):
         review = selected_review(feature)
         max_cloud = review["max_cloud"] if review_has_windows(review) else no_update
-        return default_window_values(feature, review), max_cloud
+        values = default_window_values(feature, review)
+        months, years = zip(*map(split_month, values), strict=True)
+        return list(months), list(years), max_cloud
 
     @app.callback(
         Output(window_id("outline", ALL), "data"),
@@ -980,10 +1020,11 @@ def create_app(
         Input("find-button", "n_clicks"),
         Input("selected", "data"),
         State(window_id("month", ALL), "value"),
+        State(window_id("year", ALL), "value"),
         State("max-cloud", "value"),
         prevent_initial_call=True,
     )
-    def request_windows(n_clicks, feature, values, max_cloud):
+    def request_windows(n_clicks, feature, months, years, max_cloud):
         problem = site_problem(feature) if feature else None
         if problem:
             # Only say why when asked; a new selection just clears the panels.
@@ -1002,6 +1043,7 @@ def create_app(
             )
         if not feature:
             return [no_update] * config.N_WINDOWS, _muted("Select a site first.")
+        values = list(map(join_month, months, years))
         return window_requests(feature, values, max_cloud, n_clicks), None
 
     @app.callback(
@@ -1133,18 +1175,32 @@ def create_app(
         State(window_id("result", ALL), "data"),
         State(window_id("choice", ALL), "value"),
         State(window_id("month", ALL), "value"),
+        State(window_id("year", ALL), "value"),
         State("max-cloud", "value"),
         prevent_initial_call=True,
     )
     def save_review(
-        save_clicks, next_clicks, feature, verdict, note, results, links, months, cloud
+        save_clicks,
+        next_clicks,
+        feature,
+        verdict,
+        note,
+        results,
+        links,
+        months,
+        years,
+        cloud,
     ):
         if not feature:
             return _muted("Select a site first."), no_update
         if verdict not in reviews.VERDICTS:
             return _warning("Choose a verdict first."), no_update
         keyval = feature["properties"]["keyval"]
-        choices = window_choices(results, links, months, keyval)
+        values = list(map(join_month, months, years))
+        choices = window_choices(results, links, values, keyval)
+        problem = reviews.verdict_problem(verdict, choices)
+        if problem:
+            return _warning(problem), no_update
         # The threshold the shown images were found with, if any were.
         max_cloud = next(
             (r["max_cloud"] for r in results if r and r.get("max_cloud")),

@@ -391,9 +391,25 @@ def test_choice_options_name_tile_when_date_repeats():
 
 
 def test_review_edited():
-    saved = {"verdict": "change", "note": "houses"}
-    assert not app_module.review_edited(saved, "change", " houses ")
+    saved = {"verdict": "change after", "note": "houses"}
+    assert not app_module.review_edited(saved, "change after", " houses ")
     assert app_module.review_edited(saved, "unsure", "houses")
-    assert app_module.review_edited(saved, "change", "")
+    assert app_module.review_edited(saved, "change after", "")
     assert not app_module.review_edited(None, None, "")
-    assert app_module.review_edited(None, "change", None)
+    assert app_module.review_edited(None, "change after", None)
+
+
+def test_month_selects_round_trip():
+    assert app_module.split_month("2023-06") == ("06", "2023")
+    assert app_module.split_month(None) == (None, None)
+    assert app_module.join_month("06", "2023") == "2023-06"
+    assert app_module.join_month("06", None) is None
+    assert app_module.join_month(None, "2023") is None
+    assert [o["value"] for o in app_module.MONTH_OPTIONS][:2] == ["01", "02"]
+    years = app_module.year_options(date(2026, 10, 21))
+    assert years[0] == "2026" and years[-1] == str(config.S2_FIRST_YEAR)
+
+
+def test_review_status_shows_old_verdict_keys():
+    record = {"verdict": "change", "saved_at": "2026-10-20T14:03:09"}
+    assert "Saved: change" in str(app_module.review_status(record))

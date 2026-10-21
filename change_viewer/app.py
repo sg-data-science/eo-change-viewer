@@ -23,7 +23,7 @@ from flask import abort, send_file
 from rasterio.errors import RasterioIOError
 from shapely.geometry import shape
 
-from change_viewer import basemap, config, imagery, reviews
+from change_viewer import basemap, config, imagery, reviews, workers
 from change_viewer.cache import CHIP_ROUTE, Cache, cached_chip, cached_search
 from change_viewer.planning import PlanningClient, PlanningError
 from change_viewer.proxy import ROUTE as WMS_ROUTE
@@ -1023,7 +1023,11 @@ def create_app(
         max_cloud = request["max_cloud"]
         aoi = aoi_from_feature(request["feature"])
         try:
-            result = cached_search(chip_cache, image_search, aoi, window, max_cloud)
+            # Remote image reads run on workers, never on the server's
+            # per-connection threads; see workers.py.
+            result = workers.run(
+                cached_search, chip_cache, image_search, aoi, window, max_cloud
+            )
         except imagery.CedaUnavailable:
             return (
                 None,
@@ -1066,7 +1070,8 @@ def create_app(
         feature = data["feature"]
         aoi = aoi_from_feature(feature)
         try:
-            _, overlay_url, bounds = cached_chip(
+            _, overlay_url, bounds = workers.run(
+                cached_chip,
                 chip_cache,
                 feature["properties"]["keyval"],
                 candidate,
@@ -1146,8 +1151,8 @@ def create_app(
             float(cloud or config.S2CLOUDLESS_MAX),
         )
         geom = aoi_from_feature(feature).geometry.iloc[0]
-        chips, failed = reviews.export_site(
-            chip_cache, keyval, choices, geom, export_dir
+        chips, failed = workers.run(
+            reviews.export_site, chip_cache, keyval, choices, geom, export_dir
         )
         record = reviews.review_record(
             feature["properties"], verdict, note, max_cloud, choices, chips

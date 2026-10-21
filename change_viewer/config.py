@@ -82,6 +82,9 @@ GDAL_ENV = {
     "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
     "GDAL_HTTP_MERGE_CONSECUTIVE_RANGES": "YES",
 }
+# Threads that do the remote image reads (see workers.py): enough for the
+# window searches or chips to run in parallel, plus a save.
+GDAL_WORKERS = N_WINDOWS + 1
 
 # Initial map view: Scotland.
 MAP_CENTER = [56.8, -4.2]

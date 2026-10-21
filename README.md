@@ -16,6 +16,46 @@ trixie, system GDAL). Runtime dependencies are in
 `.devcontainer/requirements.txt` and dev tools in
 `.devcontainer/requirements-dev.txt`.
 
+### Windows, without Docker
+
+`environment.yml` builds a conda environment with the same packages. GDAL
+and the other compiled libraries come from conda-forge, so nothing needs
+building.
+
+1. Install [Miniforge](https://conda-forge.org/download/). It uses
+   conda-forge by default. Anaconda or Miniconda also work.
+2. Open **Miniforge Prompt** in the project folder and run:
+
+   ```bat
+   conda env create -f environment.yml
+   conda activate change-viewer
+   ```
+
+   pip installs `ceda-sentinel` from GitHub with the `git` that's in the
+   environment, so Git for Windows isn't needed.
+3. Create `.env` as described below. If you use Notepad, check that it
+   doesn't save the file as `.env.txt`.
+4. Run the app from the activated prompt:
+
+   ```bat
+   python -m change_viewer.app --host 127.0.0.1
+   ```
+
+   Open http://localhost:8050. Without `--host 127.0.0.1`, the app listens on
+   every network interface, and Windows Firewall asks whether to allow it.
+
+After `environment.yml` changes, update with
+`conda env update -f environment.yml --prune`.
+
+On Windows, a file that another program has open can't be replaced or
+deleted. Close `output/reviews.gpkg` and any exported chips in QGIS, or
+other programs, before saving a review. Otherwise the save fails.
+
+The Playwright browser checks under Development use the dev container's
+Chromium and aren't set up in the conda environment.
+
+### Settings
+
 Create `.env` in the project root with the full WFS URL, including its
 `typeName` and `authkey` parameters:
 

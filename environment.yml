@@ -1,0 +1,42 @@
+# Conda environment for running change-viewer on Windows without Docker.
+# conda-forge supplies GDAL and the compiled geospatial packages, so nothing
+# is built from source. Keep in step with .devcontainer/requirements*.txt.
+#
+#   conda env create -f environment.yml
+#   conda activate change-viewer
+name: change-viewer
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.14
+  - pip
+  # git is needed by pip to install ceda-sentinel from GitHub.
+  - git
+  # Runtime (.devcontainer/requirements.txt)
+  - numpy
+  - pandas
+  - scipy
+  - requests
+  - tqdm
+  - matplotlib
+  - beautifulsoup4
+  - lxml
+  - rasterio
+  - geopandas
+  - fiona
+  - pystac-client
+  - dash
+  - dash-bootstrap-components
+  - pillow
+  - python-dotenv
+  # Dev tools (.devcontainer/requirements-dev.txt; Playwright is left out)
+  - black
+  - ruff
+  - pytest
+  - pytest-cov
+  - ipykernel
+  - pip:
+      # conda-forge's dash-leaflet lags PyPI (1.0.x vs 1.1.x).
+      - dash-leaflet
+      - ceda-sentinel @ git+https://github.com/tomwilsonsco/ceda_sentinel@v0.1.0

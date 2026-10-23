@@ -292,6 +292,31 @@ def test_position_text():
     assert app_module.position_text(KEYVALS, "X", set()) == "4 sites · 0 reviewed"
 
 
+SITES = [("A", "Angus"), ("B", "Angus"), ("C", "Fife"), ("D", "Fife"), ("E", None)]
+
+
+def test_council_options():
+    options = app_module.council_options(SITES)
+    assert [o["value"] for o in options] == [app_module.ALL_COUNCILS, "Angus", "Fife"]
+
+
+def test_step_keyvals_filters_by_council():
+    assert app_module.step_keyvals(SITES) == ["A", "B", "C", "D", "E"]
+    assert app_module.step_keyvals(SITES, "Fife") == ["C", "D"]
+    assert app_module.step_keyvals(SITES, "Nowhere") == []
+
+
+def test_step_keyvals_shuffle_is_fixed_and_consistent_across_councils():
+    many = [(f"K{i}", "Angus" if i % 2 else "Fife") for i in range(50)]
+    shuffled = app_module.step_keyvals(many, shuffle=True)
+    assert sorted(shuffled) == sorted(k for k, _ in many)
+    assert shuffled != [k for k, _ in many]
+    assert app_module.step_keyvals(many, shuffle=True) == shuffled
+    # One council's shuffled order is the full order with the others removed.
+    fife = app_module.step_keyvals(many, "Fife", shuffle=True)
+    assert fife == [k for k in shuffled if int(k[1:]) % 2 == 0]
+
+
 LINK = "https://dap.ceda.ac.uk/x/S2B_20230604_T30VVH_utm30n_osgb_vmsk.tif"
 OTHER = "https://dap.ceda.ac.uk/x/S2A_20230611_T30VVH_utm30n_osgb_vmsk.tif"
 

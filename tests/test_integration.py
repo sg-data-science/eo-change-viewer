@@ -54,6 +54,31 @@ def test_find_s2_stac_returns_images(client):
     assert {"image_link", "image_date", "s2cloudles"} <= set(links.columns)
 
 
+S2_ARD = "https://dap.ceda.ac.uk/neodc/sentinel_ard/data/sentinel_2/"
+SUFFIX = "_utm30n_osgb_vmsk_sharp_rad_srefdem_stdsref.tif"
+# Chip area of an Orkney site (QVVK33MDKAU00) whose June 2020 and 2022 images
+# are fog the cloud mask scores as 0% cloud; its June 2023 image is clear.
+ORKNEY_CHIP = (353110, 1002060, 355280, 1004230)
+
+
+@pytest.mark.parametrize(
+    ("name", "bright"),
+    [
+        ("2020/06/14/S2A_20200614_lat59lon204_T30VWL_ORB123", True),
+        ("2022/06/09/S2B_20220609_lat59lon204_T30VWL_ORB123", True),
+        (
+            "2023/06/14/S2B_20230614_latn590lonw0020_T30VWL_ORB123_20230614121545",
+            False,
+        ),
+    ],
+)
+def test_bright_check_catches_fog_the_mask_misses(name, bright):
+    from change_viewer import imagery
+
+    percent = imagery.bright_percent(S2_ARD + name + SUFFIX, ORKNEY_CHIP)
+    assert (percent > config.BRIGHT_MAX_PERCENT) is bright
+
+
 def test_basemap_capture_date():
     from change_viewer.basemap import image_info
 

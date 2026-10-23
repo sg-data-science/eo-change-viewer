@@ -81,6 +81,10 @@ python -m change_viewer.app --port 8051 --debug
   key, or step with **Next** / **Previous**. The step list is every polygon
   for the year and development type shown, sorted by council then reference.
   **Skip reviewed** passes over polygons that already have a saved review.
+  The council dropdown below the buttons limits the step list to one
+  council. **Shuffle** steps in a fixed pseudo-random order instead, which
+  mixes councils. The order is the same every session, so Previous and
+  resuming later still work. The map itself isn't filtered by council.
 - **Find images:** the three windows are pre-filled from the application
   dates: June of the year before receipt, then June one and two years after
   the decision (or after receipt if there's no decision). Each window's
@@ -113,6 +117,11 @@ python -m change_viewer.app --port 8051 --debug
   a connection error.
 - An image passes when less than the max cloud % of the polygon, plus a
   buffer, is cloud (s2cloudless).
+- An image that passes the cloud mask then gets a brightness check, because
+  the mask misses some low, even cloud and fog that fills the scene. The
+  image is rejected if over 25% of the chip area has blue reflectance of at
+  least 0.3. The check uses the whole chip, not just the polygon, so bright
+  new roofs don't trip it.
 - **Selection rule:** least cloud first, then the earliest date, then the
   image link.
 - **Display:** bands 4, 3 and 2 (red, green, blue) are each clipped to
@@ -131,6 +140,8 @@ Settings are in `change_viewer/config.py`.
 | `S2CLOUDLESS_MAX` | 10 | Default max cloud % over the polygon. It can be changed in the UI. |
 | `CHECK_BUFFER_M` | 100 | Buffer around the polygon included in the cloud check. |
 | `TILE_CLOUD_MAX` | 100 | `ceda_sentinel`'s whole-tile cloud filter. A value of 100 turns it off; the default of 20 rejected images that were clear over the polygon. |
+| `BRIGHT_BLUE_MIN` | 300 | Blue reflectance (× 1000, as stored in the ARD) at or above which a pixel counts as bright in the brightness check. |
+| `BRIGHT_MAX_PERCENT` | 25 | An image is rejected if more than this % of the chip area is bright. In cached searches, clear images were under 10% and cloud the mask missed was 29–100%. |
 | `CHIP_BUFFER_M` | 1000 | Buffer around the polygon's bounds for chips and exports. The chip area is made square and snapped to the 10 m grid. |
 | `RGB_CLIP` | (0, 150) | Display stretch for each band. |
 | `S2_FIRST_YEAR` | 2015 | No search before this year. |

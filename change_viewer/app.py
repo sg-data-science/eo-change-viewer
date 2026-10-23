@@ -11,6 +11,7 @@ Run with `python -m change_viewer.app` and open http://localhost:8050.
 
 import argparse
 import functools
+import hashlib
 import json
 import math
 from datetime import date
@@ -63,6 +64,7 @@ ATTRIBUTE_LABELS = {
 }
 
 ALL_TYPES = "__all__"
+ALL_COUNCILS = "__all__"
 BASEMAP_DATE_LABEL = "Basemap image date"
 
 WINDOW_NAMES = [name.title() for name in config.WINDOW_NAMES]
@@ -323,6 +325,33 @@ def no_image_message(window, max_cloud):
         f"No image of this site with under {max_cloud:g}% cloud in "
         f"{window.label}. Try another month or raise the max cloud."
     )
+
+
+def council_options(sites):
+    """Dropdown options for the councils in `sites`, (keyval, council) pairs."""
+    councils = sorted({c for _, c in sites if c})
+    return [{"label": "All councils", "value": ALL_COUNCILS}] + [
+        {"label": c, "value": c} for c in councils
+    ]
+
+
+def _shuffle_key(keyval):
+    # A hash rather than `random`, so the order is the same every run and a
+    # site keeps its place relative to the others when filtering by council.
+    return hashlib.sha256(str(keyval).encode()).hexdigest()
+
+
+def step_keyvals(sites, council=ALL_COUNCILS, shuffle=False):
+    """The keyvals Next and Previous step through.
+
+    `sites` are (keyval, council) pairs in council then reference order.
+    Keeps one council's sites unless `council` is all, and with `shuffle`
+    puts them in a fixed pseudo-random order, so councils are mixed.
+    """
+    keyvals = [
+        k for k, c in sites if council in (None, "", ALL_COUNCILS) or c == council
+    ]
+    return sorted(keyvals, key=_shuffle_key) if shuffle else keyvals
 
 
 def step_target(keyvals, current, direction, skip=frozenset()):
@@ -631,10 +660,33 @@ def _sidebar():
             className="d-flex align-items-center gap-3",
         ),
         html.Div(
+            [
+                html.Div(
+                    dcc.Dropdown(
+                        id="council",
+                        options=[{"label": "All councils", "value": ALL_COUNCILS}],
+                        value=ALL_COUNCILS,
+                        clearable=False,
+                    ),
+                    className="flex-grow-1 small",
+                ),
+                dbc.Switch(
+                    id="shuffle-sites",
+                    label="Shuffle",
+                    value=False,
+                    persistence=True,
+                    className="small mb-0",
+                ),
+            ],
+            className="d-flex align-items-center gap-3 mt-2",
+            title="The council to step through, and whether to step in a fixed "
+            "shuffled order that mixes councils.",
+        ),
+        html.Div(
             id="step-status",
             className="small text-muted mb-2",
             title="Next and Previous step through the year and development type "
-            "shown on the map, in council and reference order.",
+            "shown on the map, in council and reference order unless shuffled.",
         ),
         dbc.Label("Verdict", html_for="verdict", className="mb-0"),
         dbc.RadioItems(
@@ -781,8 +833,14 @@ def create_app(
 
     @functools.lru_cache(maxsize=8)
     def site_list(year, dev_type):
-        # Errors aren't cached, so a failed fetch is retried next time.
-        return tuple(s["keyval"] for s in client.site_list(year, dev_type))
+        """(keyval, council) pairs. Errors aren't cached, so are retried."""
+        return tuple(
+            (s["keyval"], s["local_auth"]) for s in client.site_list(year, dev_type)
+        )
+
+    def stepped_keyvals(year, dev_type, council, shuffle):
+        sites = site_list(int(year), dev_type_value(dev_type))
+        return step_keyvals(sites, council, shuffle)
 
     def selected_review(feature):
         return review_store.get(feature["properties"]["keyval"]) if feature else None
@@ -875,6 +933,8 @@ def create_app(
         State("map", "zoom"),
         State("selected", "data"),
         State("skip-reviewed", "value"),
+        State("council", "value"),
+        State("shuffle-sites", "value"),
         prevent_initial_call=True,
     )
     def select(
@@ -889,11 +949,15 @@ def create_app(
         zoom,
         current,
         skip_reviewed,
+        council,
+        shuffle,
     ):
         trigger = ctx.triggered_id
         if trigger in ("prev-button", "next-button", "step-request"):
             direction = -1 if trigger == "prev-button" else 1
-            return step_to(current, direction, year, dev_type, skip_reviewed)
+            return step_to(
+                current, direction, year, dev_type, council, shuffle, skip_reviewed
+            )
         if isinstance(trigger, dict):
             index = trigger["index"]
             if not hit_clicks[index] or not search_features:
@@ -924,13 +988,13 @@ def create_app(
             )
         return features[0], no_update, note
 
-    def step_to(current, direction, year, dev_type, skip_reviewed):
-        """Select the next or previous site in the year and type shown."""
+    def step_to(current, direction, year, dev_type, council, shuffle, skip_reviewed):
+        """Select the next or previous site in the step list."""
         current_keyval = current["properties"].get("keyval") if current else None
         try:
-            keyvals = site_list(int(year), dev_type_value(dev_type))
+            keyvals = stepped_keyvals(year, dev_type, council, shuffle)
             skip = review_store.reviewed() if skip_reviewed else set()
-            index = step_target(list(keyvals), current_keyval, direction, skip)
+            index = step_target(keyvals, current_keyval, direction, skip)
             if index is None:
                 unreviewed = " unreviewed" if skip_reviewed else ""
                 way = "after" if direction > 0 else "before"
@@ -945,19 +1009,36 @@ def create_app(
         return feature, viewport, None
 
     @app.callback(
+        Output("council", "options"),
+        Output("council", "value"),
+        Input("year", "value"),
+        Input("dev-type", "value"),
+        State("council", "value"),
+    )
+    def update_councils(year, dev_type, council):
+        try:
+            options = council_options(site_list(int(year), dev_type_value(dev_type)))
+        except PlanningError:
+            return no_update, no_update
+        values = {o["value"] for o in options}
+        return options, council if council in values else ALL_COUNCILS
+
+    @app.callback(
         Output("step-status", "children"),
         Input("selected", "data"),
         Input("year", "value"),
         Input("dev-type", "value"),
+        Input("council", "value"),
+        Input("shuffle-sites", "value"),
         Input("review-status", "children"),
     )
-    def show_position(feature, year, dev_type, _review_status):
+    def show_position(feature, year, dev_type, council, shuffle, _review_status):
         try:
-            keyvals = site_list(int(year), dev_type_value(dev_type))
+            keyvals = stepped_keyvals(year, dev_type, council, shuffle)
         except PlanningError:
             return "Couldn't load the site list."
         current = feature["properties"].get("keyval") if feature else None
-        return position_text(list(keyvals), current, review_store.reviewed())
+        return position_text(keyvals, current, review_store.reviewed())
 
     @app.callback(Output("selected-layer", "data"), Input("selected", "data"))
     def highlight_selected(feature):

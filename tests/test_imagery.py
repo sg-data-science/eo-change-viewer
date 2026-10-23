@@ -3,13 +3,16 @@
 from datetime import date
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 import pytest
+import rasterio as rio
 import requests
 from ceda_s2 import ImageReadError
+from rasterio.transform import from_origin
 from shapely.geometry import box
 
-from change_viewer import imagery
+from change_viewer import imagery, render
 from change_viewer.imagery import (
     Candidate,
     CedaUnavailable,
@@ -175,13 +178,29 @@ class FakeClient:
         return FakeItems(self.n_items)
 
 
-def make_search(n_items, stac=(), html=()):
+def make_search(n_items, stac=(), html=(), bright=None):
+    """A search with fake finders. `bright` maps image links to the bright
+    percentage, or to an exception to raise; links not in it are 0."""
     FakeStac.calls, FakeStac.behaviours = [], list(stac)
     FakeHtml.calls, FakeHtml.behaviours = [], list(html)
     client = FakeClient(n_items)
+    bright = bright or {}
+
+    def bright_reader(link, bounds, blue_min):
+        bright_reader.calls.append((link, bounds, blue_min))
+        value = bright.get(link, 0.0)
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    bright_reader.calls = []
     search = ImageSearch(
-        stac_finder=FakeStac, html_finder=FakeHtml, client_factory=lambda: client
+        stac_finder=FakeStac,
+        html_finder=FakeHtml,
+        client_factory=lambda: client,
+        bright_reader=bright_reader,
     )
+    search.bright_calls = bright_reader.calls
     return search, client
 
 
@@ -251,3 +270,90 @@ def test_settings_key():
     search = ImageSearch()
     assert search.settings_key() == search.settings_key(imagery.config.S2CLOUDLESS_MAX)
     assert search.settings_key(5) != search.settings_key(10)
+    assert ImageSearch(bright_max_percent=50).settings_key() != search.settings_key()
+    assert ImageSearch(bright_blue_min=400).settings_key() != search.settings_key()
+
+
+# --- brightness check -------------------------------------------------------
+
+
+def test_bright_images_are_dropped_after_the_mask(aoi):
+    rows = [("fog", "2020-06-14", 0.0), ("clear", "2020-06-29", 3.0)]
+    search, _ = make_search(2, stac=[finder_output(aoi, rows)], bright={"fog": 100})
+    result = search.search(aoi, Window(2020, 6))
+    assert [c.image_link for c in result.candidates] == ["clear"]
+    assert result.read_errors == 0
+    # Measured over the chip area, not the site plus the mask's buffer.
+    bounds = render.chip_bounds(aoi.geometry.iloc[0])
+    assert search.bright_calls == [
+        ("fog", bounds, imagery.config.BRIGHT_BLUE_MIN),
+        ("clear", bounds, imagery.config.BRIGHT_BLUE_MIN),
+    ]
+
+
+def test_bright_check_threshold_is_inclusive(aoi):
+    limit = imagery.config.BRIGHT_MAX_PERCENT
+    rows = [("at", "2020-06-01", 0.0), ("over", "2020-06-02", 0.0)]
+    bright = {"at": limit, "over": limit + 0.1}
+    search, _ = make_search(2, stac=[finder_output(aoi, rows)], bright=bright)
+    result = search.search(aoi, Window(2020, 6))
+    assert [c.image_link for c in result.candidates] == ["at"]
+
+
+def test_bright_check_skipped_when_mask_passes_nothing(aoi):
+    search, _ = make_search(2, stac=[None])
+    assert search.search(aoi, Window(2020, 6)).candidates == []
+    assert search.bright_calls == []
+
+
+def test_bright_read_error_drops_image_and_counts(aoi):
+    rows = [("bad", "2020-06-01", 0.0), ("ok", "2020-06-02", 0.0)]
+    bright = {"bad": OSError("HTTP 503")}
+    search, _ = make_search(2, stac=[finder_output(aoi, rows)], bright=bright)
+    result = search.search(aoi, Window(2020, 6))
+    assert [c.image_link for c in result.candidates] == ["ok"]
+    assert result.read_errors == 1
+
+
+def test_every_bright_read_failing_means_unavailable(aoi):
+    rows = [("a", "2020-06-01", 0.0)]
+    bright = {"a": OSError("HTTP 503")}
+    search, _ = make_search(2, stac=[finder_output(aoi, rows)], bright=bright)
+    with pytest.raises(CedaUnavailable):
+        search.search(aoi, Window(2020, 6))
+
+
+@pytest.fixture
+def blue_tif(tmp_path):
+    """A 10x10 image at 10 m with blue 0 (nodata) in the first row, 500
+    (bright) in the next two and 50 elsewhere."""
+    blue = np.full((10, 10), 50, dtype=np.uint16)
+    blue[0] = 0
+    blue[1:3] = 500
+    path = tmp_path / "image.tif"
+    profile = {
+        "driver": "GTiff",
+        "width": 10,
+        "height": 10,
+        "count": 3,
+        "dtype": "uint16",
+        "crs": "EPSG:27700",
+        "transform": from_origin(1000, 2000, 10, 10),
+        "nodata": 0,
+    }
+    with rio.open(path, "w", **profile) as dst:
+        dst.write(np.stack([blue, blue // 2, blue // 2]))
+    return path
+
+
+def test_bright_percent_ignores_nodata(blue_tif):
+    # 90 valid pixels, 20 of them bright.
+    percent = imagery.bright_percent(blue_tif, (1000, 1900, 1100, 2000), 300)
+    assert percent == pytest.approx(20 / 90 * 100)
+
+
+def test_bright_percent_outside_image_is_nodata(blue_tif):
+    # The left half is off the image, so only the image's valid pixels count.
+    percent = imagery.bright_percent(blue_tif, (900, 1900, 1100, 2000), 300)
+    assert percent == pytest.approx(20 / 90 * 100)
+    assert imagery.bright_percent(blue_tif, (0, 0, 100, 100), 300) == 0.0

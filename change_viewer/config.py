@@ -55,6 +55,14 @@ PLACEHOLDER_RADIUS_M = 10.0
 S2CLOUDLESS_MAX = 10
 CHECK_BUFFER_M = 100
 TILE_CLOUD_MAX = 100
+# The cloud mask misses some low, even cloud and fog that fills the scene. An
+# image that passes the mask is also rejected if over BRIGHT_MAX_PERCENT of
+# the chip area has blue reflectance of at least BRIGHT_BLUE_MIN (reflectance
+# x 1000, as stored in the ARD). The chip area is used rather than the site so
+# bright new roofs, a small part of it, don't trip the check. In cached
+# searches, clear images were under 10% and cloud the mask missed was 29-100%.
+BRIGHT_BLUE_MIN = 300
+BRIGHT_MAX_PERCENT = 25
 WINDOW_NAMES = ("before", "after", "later")
 N_WINDOWS = len(WINDOW_NAMES)
 # First year of the CEDA Sentinel-2 ARD archive.

@@ -4,6 +4,9 @@ Wraps `ceda_sentinel`. STAC is tried first; the HTML-scraping finder is used
 only when STAC has no items at all for the window, which happens for older
 dates it doesn't index. If STAC has items but none is clear, the scraper
 would check the same images more slowly, so it isn't tried.
+
+Images that pass the library's cloud mask check then get a brightness check
+of their own, as the mask misses some cloud and fog that fills the scene.
 """
 
 import calendar
@@ -14,11 +17,14 @@ import threading
 from dataclasses import asdict, dataclass, field
 from datetime import date
 
+import numpy as np
+import rasterio as rio
 import requests
 from ceda_s2 import FindS2, FindS2STAC, ImageReadError
 from ceda_stac.client import S2_ARD_COLLECTION, format_datetime_range, get_stac_client
+from rasterio.windows import from_bounds
 
-from change_viewer import config
+from change_viewer import config, render
 
 logger = logging.getLogger(__name__)
 
@@ -170,11 +176,27 @@ def _candidates(gdf):
     )
 
 
+def bright_percent(image_link, bounds, blue_min=config.BRIGHT_BLUE_MIN):
+    """Percentage of valid pixels in `bounds` with blue at least `blue_min`."""
+    with rio.open(image_link) as src:
+        nodata = 0 if src.nodata is None else src.nodata
+        blue = src.read(
+            render.BLUE_BAND,
+            window=from_bounds(*bounds, src.transform),
+            boundless=True,
+            fill_value=nodata,
+        )
+    valid = blue[blue != nodata]
+    if valid.size == 0:
+        return 0.0
+    return float(np.mean(valid >= blue_min) * 100)
+
+
 class ImageSearch:
     """Runs window searches for one site at a time, reusing one STAC client.
 
-    `stac_finder`, `html_finder` and `client_factory` default to the
-    `ceda_sentinel` ones and can be swapped in tests.
+    `stac_finder`, `html_finder`, `client_factory` and `bright_reader` default
+    to the real ones and can be swapped in tests.
     """
 
     def __init__(
@@ -182,17 +204,23 @@ class ImageSearch:
         s2cloudless_max=config.S2CLOUDLESS_MAX,
         check_buffer=config.CHECK_BUFFER_M,
         tile_cloud_max=config.TILE_CLOUD_MAX,
+        bright_blue_min=config.BRIGHT_BLUE_MIN,
+        bright_max_percent=config.BRIGHT_MAX_PERCENT,
         stac_finder=FindS2STAC,
         html_finder=FindS2,
         client_factory=get_stac_client,
+        bright_reader=bright_percent,
         connection_retries=1,
     ):
         self.s2cloudless_max = s2cloudless_max
         self.check_buffer = check_buffer
         self.tile_cloud_max = tile_cloud_max
+        self.bright_blue_min = bright_blue_min
+        self.bright_max_percent = bright_max_percent
         self.stac_finder = stac_finder
         self.html_finder = html_finder
         self.client_factory = client_factory
+        self.bright_reader = bright_reader
         self.connection_retries = connection_retries
         self._client = None
         self._client_lock = threading.Lock()
@@ -200,7 +228,40 @@ class ImageSearch:
     def settings_key(self, s2cloudless_max=None):
         """Identifies the search settings, for caching results."""
         cloud = self.s2cloudless_max if s2cloudless_max is None else s2cloudless_max
-        return f"c{cloud:g}_b{self.check_buffer:g}_t{self.tile_cloud_max:g}"
+        return (
+            f"c{cloud:g}_b{self.check_buffer:g}_t{self.tile_cloud_max:g}"
+            f"_w{self.bright_blue_min:g}_{self.bright_max_percent:g}"
+        )
+
+    def _drop_bright(self, aoi, candidates):
+        """The candidates that pass the brightness check, and failed reads.
+
+        Run only on images that passed the cloud mask. A failed read drops
+        the image, as a failed check does in `ceda_sentinel`.
+
+        Raises:
+            CedaUnavailable: every read failed.
+        """
+        bounds = render.chip_bounds(aoi.geometry.iloc[0])
+        kept, errors = [], 0
+        for candidate in candidates:
+            try:
+                percent = self.bright_reader(
+                    candidate.image_link, bounds, self.bright_blue_min
+                )
+            except Exception as e:
+                logger.warning(
+                    "Brightness check of %s failed: %s", candidate.image_id, e
+                )
+                errors += 1
+                continue
+            if percent > self.bright_max_percent:
+                logger.info("%s rejected: %.1f%% bright", candidate.image_id, percent)
+            else:
+                kept.append(candidate)
+        if candidates and errors == len(candidates):
+            raise CedaUnavailable("Every brightness check read failed")
+        return kept, errors
 
     @property
     def client(self):
@@ -281,9 +342,10 @@ class ImageSearch:
                 # isn't mistaken for an outage.
                 logger.exception("Sentinel-2 search failed for %s", window.key)
                 raise CedaUnavailable("The CEDA search failed") from e
+        candidates, bright_errors = self._drop_bright(aoi, _candidates(gdf))
         return SearchResult(
             window=window,
-            candidates=_candidates(gdf),
+            candidates=candidates,
             source=source,
-            read_errors=len(finder.read_errors),
+            read_errors=len(finder.read_errors) + bright_errors,
         )

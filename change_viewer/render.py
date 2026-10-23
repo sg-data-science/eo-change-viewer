@@ -30,6 +30,7 @@ _PLOTTER_BANDS = (
     inspect.signature(ImagePlotter.__init__).parameters["band_indices"].default
 )
 RGB_BANDS = tuple(reversed(_PLOTTER_BANDS))
+BLUE_BAND = RGB_BANDS[2]
 
 PIXEL_SIZE_M = 10
 OUTLINE_COLOUR = (0, 229, 255, 255)

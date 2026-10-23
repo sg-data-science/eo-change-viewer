@@ -2,3 +2,29 @@
 .leaflet-image-layer {
     image-rendering: pixelated;
 }
+
+/* Coordinate readout and copy popup on the main map (coords.js). */
+.coords-readout {
+    background: rgba(255, 255, 255, 0.85);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font: 12px/1.4 monospace;
+    min-width: 11.5em;
+    color: #212529;
+}
+.coords-popup {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    width: 18em;
+}
+.coords-popup input {
+    flex: 1;
+    min-width: 0;
+    font: 12px monospace;
+}
+.coords-note {
+    width: 100%;
+    font-size: 11px;
+    color: #6c757d;
+}

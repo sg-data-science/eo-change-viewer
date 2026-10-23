@@ -229,12 +229,14 @@ def test_chip_route_traversal_serves_nothing(dash_app, url):
 
 # --- linked panel maps --------------------------------------------------------
 
-SYNC_JS = Path(app_module.__file__).parent / "assets" / "sync_maps.js"
+ASSETS = Path(app_module.__file__).parent / "assets"
+SYNC_JS = ASSETS / "sync_maps.js"
+COORDS_JS = ASSETS / "coords.js"
 
 
-def _js_constant(name):
-    match = re.search(rf'const {name} = "([^"]+)";', SYNC_JS.read_text())
-    assert match, f"{name} not found in sync_maps.js"
+def _js_constant(name, script=SYNC_JS):
+    match = re.search(rf'const {name} = "([^"]+)";', script.read_text())
+    assert match, f"{name} not found in {script.name}"
     return match.group(1)
 
 
@@ -254,6 +256,14 @@ def test_sync_script_ids_match_layout(dash_app):
     # Dash gives a map with a dict id a JSON container id, which the script
     # searches for this text.
     assert all(_js_constant("PANEL_ID_PART") in json.dumps(i) for i in panels)
+
+
+def test_coords_script_finds_main_map(dash_app):
+    # coords.js adds its tools to the map with this id only.
+    dash, _ = dash_app
+    main_map = _js_constant("MAIN_MAP_ID", COORDS_JS)
+    assert main_map in _layout_ids(dash.layout)
+    assert main_map == _js_constant("MAIN_MAP_ID")
 
 
 def test_panel_maps_have_no_basemap():

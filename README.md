@@ -85,6 +85,10 @@ python -m change_viewer.app --port 8051 --debug
   council. **Shuffle** steps in a fixed pseudo-random order instead, which
   mixes councils. The order is the same every session, so Previous and
   resuming later still work. The map itself isn't filtered by council.
+- **Coordinates:** the bottom-left of the main map shows the latitude and
+  longitude under the cursor. Right-click to open them in a popup with a
+  **Copy** button. Over plain HTTP from another machine (not `localhost`)
+  the browser blocks copying, so the button selects the text for Ctrl+C.
 - **Find images:** the three windows are pre-filled from the application
   dates: June of the year before receipt, then June one and two years after
   the decision (or after receipt if there's no decision). Each window's

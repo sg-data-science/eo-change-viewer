@@ -1,10 +1,10 @@
-# Conda environment for running change-viewer on Windows without Docker.
+# Conda environment for running eo-change-viewer on Windows without Docker.
 # conda-forge supplies GDAL and the compiled geospatial packages, so nothing
 # is built from source. Keep in step with .devcontainer/requirements*.txt.
 #
 #   conda env create -f environment.yml
-#   conda activate change-viewer
-name: change-viewer
+#   conda activate eo-change-viewer
+name: eo-change-viewer
 channels:
   - conda-forge
   - nodefaults

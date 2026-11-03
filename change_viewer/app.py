@@ -594,7 +594,7 @@ def _image_panel():
 
 def _sidebar():
     return [
-        html.H4("change-viewer", className="mt-2"),
+        html.H4("eo-change-viewer", className="mt-2"),
         dbc.Label("Year", html_for="year"),
         dcc.Dropdown(
             id="year",
@@ -847,7 +847,7 @@ def create_app(
 
     app = Dash(
         __name__,
-        title="change-viewer",
+        title="eo-change-viewer",
         external_stylesheets=[dbc.themes.BOOTSTRAP],
     )
     register_wms_proxy(app.server, client.config)

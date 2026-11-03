@@ -28,7 +28,7 @@ building.
 
    ```bat
    conda env create -f environment.yml
-   conda activate change-viewer
+   conda activate eo-change-viewer
    ```
 
    pip installs `ceda-sentinel` from GitHub with the `git` that's in the

@@ -1,1 +1,1 @@
-"""change-viewer: check planning application sites for change in Sentinel-2."""
+"""eo-change-viewer: check planning application sites for change in Sentinel-2."""

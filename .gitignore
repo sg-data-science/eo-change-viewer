@@ -219,7 +219,7 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# change-viewer
+# eo-change-viewer
 cache/
 output/
 

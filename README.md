@@ -1,4 +1,4 @@
-# change-viewer
+# eo-change-viewer
 
 A local Dash web app for checking polygons for change with Sentinel-2
 imagery. Polygons come from a GeoServer layer (WMS for display, WFS for

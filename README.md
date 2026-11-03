@@ -1,13 +1,14 @@
 # eo-change-viewer
 
-A local Dash web app for checking polygons for change with Sentinel-2
+A local [Dash](https://dash.plotly.com/) /
+[Dash Leaflet](https://www.dash-leaflet.com/) web app for checking polygons for change with Sentinel-2
 imagery. Polygons come from a GeoServer layer (WMS for display, WFS for
 queries). For a selected polygon, the app searches the CEDA Sentinel-2 ARD
 archive in up to three one-month windows, using
 [`ceda_sentinel`](https://github.com/tomwilsonsco/ceda_sentinel). It shows the
-clearest image in each window as an RGB chip, side by side. A manual verdict
-can be saved per polygon, together with the chosen images, which are exported
-as GeoTIFFs.
+clearest image in each window as an RGB chip, side by side. 
+A manual verdict on whether change can be seen can be saved per polygon, together 
+with the chosen images, which are exported as GeoTIFFs.
 
 ## Setup
 
@@ -51,8 +52,6 @@ On Windows, a file that another program has open can't be replaced or
 deleted. Close `output/reviews.gpkg` and any exported chips in QGIS, or
 other programs, before saving a review. Otherwise the save fails.
 
-The Playwright browser checks under Development use the dev container's
-Chromium and aren't set up in the conda environment.
 
 ### Settings
 
@@ -108,28 +107,28 @@ python -m change_viewer.app --port 8051 --debug
 
   Add an optional note, and press **Save** or **Save and next**. A verdict
   can't be saved without the images it compares, e.g. "Change – later
-  only" needs the before, after and later images; choose Unsure if one is
-  missing. Each window's month and image date are saved with the verdict. Next and Previous don't save; the
-  status line warns while there are unsaved changes. Reopening a reviewed
-  polygon restores its verdict, note, windows and chosen images.
+  only" needs the before, after and later images. 
+  Each window's month and image date are saved with the verdict. 
+  Next and Previous don't save, the status line warns while there are unsaved changes. 
+  
+  Reopening a reviewed polygon restores its verdict, note, windows and chosen images.
 
 ## Image search
 
 - The search uses `FindS2STAC` first. It falls back to `FindS2`
   (HTML scraping) only when STAC has no items for the window, because STAC
-  doesn't index older dates. The fallback is slow, and is retried once after
-  a connection error.
+  doesn't index older dates (2021 onwards is full STAC catalogue). 
+  The fallback method is slow, and is retried once after a connection error.
 - An image passes when less than the max cloud % of the polygon, plus a
-  buffer, is cloud (s2cloudless).
+  buffer, is cloud (uses the s2cloudless mask).
 - An image that passes the cloud mask then gets a brightness check, because
-  the mask misses some low, even cloud and fog that fills the scene. The
-  image is rejected if over 25% of the chip area has blue reflectance of at
-  least 0.3. The check uses the whole chip, not just the polygon, so bright
-  new roofs don't trip it.
+  the mask misses some cloud and fog. The image is rejected if over 25% of the 
+  chip area has blue reflectance of at least 0.3. The check uses the whole chip, 
+  not just the polygon, so bright new roofs don't trip it.
 - **Selection rule:** least cloud first, then the earliest date, then the
   image link.
 - **Display:** bands 4, 3 and 2 (red, green, blue) are each clipped to
-  0–150, scaled to 0–255, and warped to EPSG:3857.
+  0–150, scaled to 0–255, and warped to EPSG:3857 for the web map.
 - If every image read fails, the app reports "CEDA unavailable" rather than
   "no image".
 - Windows that start in the future, or before 2015, aren't searched.
@@ -168,7 +167,7 @@ query filters on `year` first. The fields used are `keyval` (unique ID),
 `cache/` and `output/` are gitignored. `output/` holds the saved reviews, so
 back it up.
 
-## Development
+## Development - linting and formatting
 
 ```bash
 black --check .

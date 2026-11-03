@@ -8,13 +8,13 @@ from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CACHE_DIR = PROJECT_ROOT / "cache"
-# Saved reviews and exported chips. Unlike the cache, these are the user's
+# saved reviews and exported chips. Unlike the cache, these are the user's
 # work, so they're kept apart from it.
 OUTPUT_DIR = PROJECT_ROOT / "output"
 REVIEWS_PATH = OUTPUT_DIR / "reviews.gpkg"
 EXPORT_DIR = OUTPUT_DIR / "chips"
 
-# Name of the variable in .env holding the full WFS URL, auth key included.
+# name of the variable in .env holding the full WFS URL, auth key included.
 WFS_URL_ENV = "PLANNING_POLY_WFS"
 
 APP_PORT = 8050
@@ -24,7 +24,7 @@ FIRST_YEAR = 2010
 DEFAULT_YEAR = 2022
 DEFAULT_DEV_TYPE = "housing"
 
-# Harmonised `dev_desc_is` categories offered in the filter, most useful first.
+# harmonised `dev_desc_is` categories offered in the filter, most useful first.
 DEV_TYPES = [
     "housing",
     "business and industry",
@@ -41,11 +41,11 @@ DEV_TYPES = [
     "other",
 ]
 
-# Native CRS of the planning layer and the S2 ARD images.
+# native CRS of the planning layer and the S2 ARD images.
 NATIVE_CRS = "EPSG:27700"
 DISPLAY_CRS = "EPSG:4326"
 
-# Placeholder polygons are circles of this radius around the point location.
+# placeholder polygons are circles of this radius around the point location.
 PLACEHOLDER_RADIUS_M = 10.0
 
 # Sentinel-2 search. An image passes if under S2CLOUDLESS_MAX % of the site,
@@ -59,28 +59,27 @@ TILE_CLOUD_MAX = 100
 # image that passes the mask is also rejected if over BRIGHT_MAX_PERCENT of
 # the chip area has blue reflectance of at least BRIGHT_BLUE_MIN (reflectance
 # x 1000, as stored in the ARD). The chip area is used rather than the site so
-# bright new roofs, a small part of it, don't trip the check. In cached
-# searches, clear images were under 10% and cloud the mask missed was 29-100%.
+# bright roofs pass check.
 BRIGHT_BLUE_MIN = 300
 BRIGHT_MAX_PERCENT = 25
 WINDOW_NAMES = ("before", "after", "later")
 N_WINDOWS = len(WINDOW_NAMES)
-# First year of the CEDA Sentinel-2 ARD archive.
+# first year of the CEDA Sentinel-2 ARD archive.
 S2_FIRST_YEAR = 2015
-# Month used for the default before/after windows, so images match in season.
+# month used for the default before/after windows, so images match in season.
 DEFAULT_WINDOW_MONTH = 6
 
 # Image chips: the area read is the site's bounds plus this buffer, made
 # square, which leaves room to pan around in the panel maps. Each band is
 # clipped to RGB_CLIP and scaled to 0-255.
 CHIP_BUFFER_M = 1000
-# Sites whose bounding box is longer than this on either side aren't
+# sites whose bounding box is longer than this on either side aren't
 # searched. Chips grow with the site, and a few polygons are tens or hundreds
 # of km across (linear schemes, or bad geometry), which would make huge reads,
 # exports and browser images, and cross Sentinel-2 tiles.
 MAX_SITE_SIZE_M = 10_000
 RGB_CLIP = (0, 150)
-# Panel chips are enlarged to about this many pixels across, so the burnt-in
+# panel chips are enlarged to about this many pixels across, so the burnt-in
 # polygon outline stays thin relative to the 10 m pixels.
 PANEL_SIZE_PX = 400
 
@@ -90,11 +89,11 @@ GDAL_ENV = {
     "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
     "GDAL_HTTP_MERGE_CONSECUTIVE_RANGES": "YES",
 }
-# Threads that do the remote image reads (see workers.py): enough for the
+# threads that do the remote image reads (see workers.py): enough for the
 # window searches or chips to run in parallel, plus a save.
 GDAL_WORKERS = N_WINDOWS + 1
 
-# Initial map view: Scotland.
+# initial map view for Scotland.
 MAP_CENTER = [56.8, -4.2]
 MAP_ZOOM = 7
 

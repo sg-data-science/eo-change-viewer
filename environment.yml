@@ -13,7 +13,7 @@ dependencies:
   - pip
   # git is needed by pip to install ceda-sentinel from GitHub.
   - git
-  # Runtime (.devcontainer/requirements.txt)
+  # runtime (.devcontainer/requirements.txt)
   - numpy
   - pandas
   - scipy
@@ -30,7 +30,7 @@ dependencies:
   - dash-bootstrap-components
   - pillow
   - python-dotenv
-  # Dev tools (.devcontainer/requirements-dev.txt; Playwright is left out)
+  # dev tools (.devcontainer/requirements-dev.txt; Playwright is left out)
   - black
   - ruff
   - pytest
